@@ -1,14 +1,10 @@
 import { segment } from 'oicq'
 import plugin from '../../../lib/plugins/plugin.js'
 
-const banNum = 4; //几次刷屏后禁言 大于等于5  若消息发送太快，次数会有偏差
+const banNum = 2; //几次刷屏后禁言 大于等于3  若消息发送太快，次数会有偏差
 const muteTime = 1; //禁言时间：分钟
-const checkTime = 1;//检测时间：分钟
-/* 
-  @作者：柒 3456953749
-  改的v2乐神的代码
-  如果需要的话，可以联系作者进一步增强
- */
+const checkTime = 30;//检测时间：秒
+
 
 export class exampleBan extends plugin {
     constructor() {
@@ -52,7 +48,7 @@ export class exampleBan extends plugin {
         if (!res) {
             res = { banID: e.user_id, msgNum: 1, msg: newMsg };
             await global.redis.set(key, JSON.stringify(res), {
-                EX: 3600 * checkTime,
+                EX: checkTime,
             });
             return true;
         } else {
@@ -78,7 +74,7 @@ export class exampleBan extends plugin {
             return true;
         }
         await global.redis.set(key, JSON.stringify(res), {
-            EX: 3600 * checkTime,
+            EX: checkTime,
         });
         return false;
     }
