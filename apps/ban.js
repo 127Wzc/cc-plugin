@@ -1,5 +1,6 @@
 import { segment } from 'oicq'
 import plugin from '../../../lib/plugins/plugin.js'
+import cfg from "../../../lib/config/config.js"
 
 const banNum = 2; //几次刷屏后禁言 大于等于3  若消息发送太快，次数会有偏差
 const muteTime = 1; //禁言时间：分钟
@@ -29,6 +30,17 @@ export class exampleBan extends plugin {
     }
 
     async ban(e) {
+
+        
+        //过滤主人 过滤机器人
+        if(cfg.masterQQ.includes(e.user_id))
+            return false;
+        //按号码段过滤群机器人
+        else if((e.at>2854000000 && e.at<2855000000))
+            return false;
+        else if((e.at>3889000000 && e.at<3890000000))
+            return false;
+
         let key = `Yunzai:ban:${e.group_id}`;
         let res = await global.redis.get(key);
         //过滤消息内容
