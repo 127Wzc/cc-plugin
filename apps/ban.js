@@ -53,6 +53,8 @@ export class exampleBan extends plugin {
                     returnMsg = item.text
                 else if(item.type == 'image')
                     returnMsg = item.name
+                else if(item.type == 'mface')
+                    returnMsg = item.emoji_id
                 else
                     returnMsg = item.name ? item.name : '';
                 return item.type.concat("-").concat(returnMsg)
@@ -78,10 +80,10 @@ export class exampleBan extends plugin {
         logger.debug(`当前群(${e.group_id})用户(${res.banID})已刷屏${res.msgNum}次`)
 
 
-        if ((res.msgNum) > banNum && newMsg == res.msg) {
+        if ((res.msgNum) > banNum) {
             await e.group.muteMember(e.user_id, 60 * muteTime)
             await this.reply([segment.at(e.user_id),` 因刷屏被禁言${muteTime}分钟`])
-            //禁言后清楚缓存
+            //禁言后清除缓存
             await global.redis.del(key);
             return true;
         }
