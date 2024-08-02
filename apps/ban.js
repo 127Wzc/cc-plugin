@@ -64,7 +64,7 @@ export class exampleBan extends plugin {
             await global.redis.set(key, JSON.stringify(res), {
                 EX: checkTime,
             });
-            return true;
+            return false;
         } else {
             res = JSON.parse(res);
         }
