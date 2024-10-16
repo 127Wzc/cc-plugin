@@ -2,7 +2,7 @@ import { segment } from 'oicq'
 import plugin from '../../../lib/plugins/plugin.js'
 import cfg from "../../../lib/config/config.js"
 
-const banNum = 2; //几次刷屏后禁言 大于等于3  若消息发送太快，次数会有偏差
+const banNum = 4; //几次刷屏后禁言 大于等于4  若消息发送太快，次数会有偏差
 const muteTime = 1; //禁言时间：分钟
 const checkTime = 30;//检测时间：秒
 
