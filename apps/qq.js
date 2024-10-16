@@ -24,7 +24,7 @@ export class exampleBan extends plugin {
 
     async registerTime(e) {
 
-        let qq = this.e.at || this.e.message.find(item => item.type == "at")?.qq || (this.e.msg.match(/\d+/)?.[0] || "")
+        let qq = this.e.at || this.e.message.find(item => item.type == "at")?.qq || (this.e.msg.match(/\d+/)?.[0] || "") || this.e.user_id
         qq = Number(qq) || String(qq)
 
         logger.debug(`当前查询的qq:${qq}`)
