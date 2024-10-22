@@ -1,5 +1,3 @@
-import { segment } from 'oicq'
-import plugin from '../../../lib/plugins/plugin.js'
 import cfg from "../../../lib/config/config.js"
 
 const banNum = 4; //几次刷屏后禁言 大于等于4  若消息发送太快，次数会有偏差
@@ -11,13 +9,13 @@ export class exampleBan extends plugin {
     constructor() {
         super({
             /** 功能名称 */
-            name: '刷屏禁言',
+            name: '群聊禁言',
             /** 功能描述 */
-            dsc: '刷屏禁言',
+            dsc: '群聊禁言',
             /** https://oicqjs.github.io/oicq/#eveAnts */
             event: 'message.group',
             /** 优先级，数字越小等级越高 */
-            priority: 1,
+            priority: 10,
             rule: [
                 {
                     /** 命令正则匹配 */
@@ -30,15 +28,13 @@ export class exampleBan extends plugin {
     }
 
     async ban(e) {
-
-        
         //过滤主人 过滤机器人
-        if(cfg.masterQQ.includes(e.user_id))
+        if (cfg.masterQQ.includes(e.user_id))
             return false;
         //按号码段过滤群机器人
-        else if((e.at>2854000000 && e.at<2855000000))
+        else if ((e.at > 2854000000 && e.at < 2855000000))
             return false;
-        else if((e.at>3889000000 && e.at<3890000000))
+        else if ((e.at > 3889000000 && e.at < 3890000000))
             return false;
 
         let key = `Yunzai:ban:${e.group_id}`;
@@ -49,11 +45,11 @@ export class exampleBan extends plugin {
 
                 let returnMsg
                 //其他类型消息待定
-                if(item.type == 'text')
+                if (item.type == 'text')
                     returnMsg = item.text
-                else if(item.type == 'image')
+                else if (item.type == 'image')
                     returnMsg = item.name
-                else if(item.type == 'mface')
+                else if (item.type == 'mface')
                     returnMsg = item.emoji_id
                 else
                     returnMsg = item.name ? item.name : '';
@@ -82,7 +78,7 @@ export class exampleBan extends plugin {
 
         if ((res.msgNum) > banNum) {
             await e.group.muteMember(e.user_id, 60 * muteTime)
-            await this.reply([segment.at(e.user_id),` 因刷屏被禁言${muteTime}分钟`])
+            await this.reply([segment.at(e.user_id), ` 因刷屏被禁言${muteTime}分钟`])
             //禁言后清除缓存
             await global.redis.del(key);
             return true;
