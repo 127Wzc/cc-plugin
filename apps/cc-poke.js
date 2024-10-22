@@ -362,7 +362,7 @@ export class chuo extends plugin {
                 await common.sleep(500)
                 await e.group.pokeMember(e.user_id)
             }
-        } else if (e.target_id == cfg.masterQQ) {
+        } else if (cfg.masterQQ.includes(e.target_id)) {
             //生成0-100的随机数
 
             if (random_type <= 0.5) {
