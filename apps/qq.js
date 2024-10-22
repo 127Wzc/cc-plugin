@@ -1,6 +1,7 @@
 import fetch from "node-fetch"
+import cfg from '../../../lib/config/config.js'
 
-export class exampleBan extends plugin {
+export class myQQ extends plugin {
     constructor() {
         super({
             /** 功能名称 */
@@ -17,9 +18,21 @@ export class exampleBan extends plugin {
                     reg: '^#(qq|QQ)注册时间.*',
                     /** 执行方法 */
                     fnc: 'registerTime'
+                },{
+                    /** 命令正则匹配 */
+                    reg: '',
+                    /** 执行方法 */
+                    fnc: 'emojiLike'
                 }
             ]
         })
+    }
+
+    async emojiLike(e) {
+        if(cfg.masterQQ.includes(e.user_id)){
+            //表情回应
+            e.group.setEmojiLike(e.message_id,"66")
+        }
     }
 
     async registerTime(e) {

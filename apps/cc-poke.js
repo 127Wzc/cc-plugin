@@ -301,9 +301,10 @@ export class chuo extends plugin {
 
     async chuoyichuo(e) {
 
+        //生成0-100的随机数
+        let random_type = Math.random()
         if (e.target_id == e.self_id) {
-            //生成0-100的随机数
-            let random_type = Math.random()
+            
 
             if (random_type < reply_text) {
                 //回复随机文字
@@ -363,9 +364,8 @@ export class chuo extends plugin {
             }
         } else if (e.target_id == cfg.masterQQ) {
             //生成0-100的随机数
-            let randomType = Math.floor(Math.random() * 50);
 
-            if (random_type <= 50) {
+            if (random_type <= 0.5) {
                 e.reply('不准戳主人！～，让你戳！')
                 await common.sleep(500)
                 await e.group.pokeMember(e.user_id)
