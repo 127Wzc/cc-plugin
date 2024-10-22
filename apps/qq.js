@@ -31,8 +31,9 @@ export class myQQ extends plugin {
     async emojiLike(e) {
         if(cfg.masterQQ.includes(e.user_id)){
             //表情回应
-            e.group.setEmojiLike(e.message_id,"66")
+            e.group?.setEmojiLike(e.message_id,"66")
         }
+        return false
     }
 
     async registerTime(e) {
