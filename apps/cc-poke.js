@@ -301,7 +301,7 @@ export class chuo extends plugin {
 
     async chuoyichuo(e) {
 
-        let key = `Yunzai:cc-poke:${e.group_id}:${e.user_id}`;
+        let key = `Yunzai:cc-poke:${e.group_id}:${e.user_id}:${e.target_id }`;
 
         let res = await global.redis.get(key);
         if(!res){
