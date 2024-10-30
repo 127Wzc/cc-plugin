@@ -308,8 +308,8 @@ export class chuo extends plugin {
             //初始缓存计数
             await global.redis.set(key, 1, { EX: 3});
         }else if(res && parseInt(res) >= 2){
-            e.reply('违规戳戳，惩罚小黑屋！')
             await e.group.muteMember(e.user_id, 60)
+            e.reply('违规戳戳，惩罚小黑屋！')
             return false
         }else {
             //更新缓存计数
