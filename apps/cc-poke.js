@@ -301,6 +301,21 @@ export class chuo extends plugin {
 
     async chuoyichuo(e) {
 
+        let key = `Yunzai:cc-poke:${e.group_id}:${e.user_id}`;
+
+        let res = await global.redis.get(key);
+        if(!res){
+            //初始缓存计数
+            await global.redis.set(key, 1, { EX: 3});
+        }else if(res && parseInt(res) >= 2){
+            e.reply('违规戳戳，惩罚小黑屋！')
+            await e.group.muteMember(e.user_id, 60)
+            return false
+        }else {
+            //更新缓存计数
+            await global.redis.set(key, parseInt(res) + 1, {EX: 3});
+        }
+
         //生成0-100的随机数
         let random_type = Math.random()
         if (e.target_id == e.self_id) {
@@ -355,7 +370,7 @@ export class chuo extends plugin {
                     await common.sleep(500);
                     e.reply('玉！！')
                     await common.sleep(500);
-                    await e.group.muteMember(e.operator_id, 60)
+                    await e.group.muteMember(e.user_id, 60)
                 }
             } else {
                 e.reply('吃玉玉一咬!~')
