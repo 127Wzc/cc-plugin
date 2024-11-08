@@ -18,7 +18,7 @@ export default class Ai {
   }
 
   static async sendRecordByType(e, message){
-    let aiConfig = Config.qqAiConfig.ai
+    let aiConfig = Config.qqConfig.ai
     let character_id = aiConfig.characterId ? aiConfig.characterId : "lucy-voice-laibixiaoxin"
     if(aiConfig.type == 0){
         character_id = Ai.getRandomAiCharacters()
