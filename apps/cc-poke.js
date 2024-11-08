@@ -5,10 +5,10 @@ import common from "../../../lib/common/common.js";
 import Ai from "../model/Ai.js";
 const _path = process.cwd();
 //在这里设置事件概率,请保证概率加起来小于1，少于1的部分会触发反击
-let reply_text = 0.2; //文字回复概率
-let reply_img = 0.2; //在线图片回复概率
+let reply_text = 0.4; //文字回复概率
+let reply_img = 0.1; //在线图片回复概率
 let reply_file = 0.2; //离线图片回复改了
-let reply_voice = 0.2; //语音回复概率
+let reply_voice = 0.1; //语音回复概率
 let mutepick = 0.1; //禁言概率
 let example = 0.1; //拍一拍表情概率
 //剩下的0.08概率就是反击
