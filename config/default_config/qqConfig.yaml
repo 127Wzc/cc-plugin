@@ -1,0 +1,13 @@
+#表情回复设置
+emoji:
+  #表情回复类型 0 随机 1 指定
+  type: 0
+  #表情回复id 来自data/face-config.json QCid或者系统表情QSid
+  emojiId: 66
+#qq群ai语音回复设置
+ai:
+  #群ai回复类型 0 随机 1 指定
+  type: 1
+  #群ai回复id 来自data/ai-characters.json character-id
+  characterId: "lucy-voice-suxinjiejie"
+    
