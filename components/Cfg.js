@@ -20,6 +20,10 @@ class Config {
   /** 初始化配置 */
   initCfg() {
     let path = `${Plugin_Path}/config/config/`;
+    if (!fs.existsSync(path)) {
+      // 如果目录不存在，则创建它
+      fs.mkdirSync(path, { recursive: true });
+    }
     let pathDef = `${Plugin_Path}/config/default_config/`;
     const files = fs
       .readdirSync(pathDef)
