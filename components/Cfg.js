@@ -1,6 +1,6 @@
 import YAML from "yaml";
 import chokidar from "chokidar";
-import YamlReader from "./YamlReader.js"
+import YamlReader from "./YamlReader.js";
 import fs from "node:fs";
 import cfg from "../../../lib/config/config.js";
 
@@ -42,7 +42,7 @@ class Config {
   }
 
   get qqConfig() {
-    return this.getDefOrConfig("qqConfig")
+    return this.getDefOrConfig("qqConfig");
   }
 
   /**
@@ -83,8 +83,8 @@ class Config {
    * 写入json
    * @param name
    */
-  writeDataJson(name,content) {
-    return this.writeJson(name,content);
+  writeDataJson(name, content) {
+    return this.writeJson(name, content);
   }
 
   /**
@@ -105,7 +105,6 @@ class Config {
     return this.config[key];
   }
 
-
   /**
    * 获取配置yaml
    * @param type 默认跑配置-defSet，用户配置-config
@@ -118,18 +117,18 @@ class Config {
     return JSON.parse(fdata);
   }
 
-/**
- * 写入配置json
- * @param {string} name 文件名
- * @param {object} content 要写入的内容
- */
- writeJson(name, content) {
+  /**
+   * 写入配置json
+   * @param {string} name 文件名
+   * @param {object} content 要写入的内容
+   */
+  writeJson(name, content) {
     let file = `${Plugin_Path}/data/${name}.json`;
     // 将内容转换为JSON字符串
     const data = JSON.stringify(content, null, 2); // 使用2个空格进行美化格式
     // 写入文件
     fs.writeFileSync(file, data, "utf8");
-}
+  }
 
   /**
    * 监听配置文件

@@ -26,4 +26,15 @@ export default class Ai {
     await e.group.sendGroupAiRecord(character_id, message)
     return true
   }
+  
+  /**
+   * 获取qq音色map 角色名：character_id
+   * @returns 
+   */
+  static getAiCharacterMap() {
+    return Config.getDataJson("ai-characters").flatMap(category => category.characters).reduce((map, character) => {
+      map.set(character.character_name, character.character_id);
+      return map;
+    }, new Map())
+  }
 }

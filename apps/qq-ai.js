@@ -1,9 +1,10 @@
 import Config from "../components/Cfg.js";
 import Ai from "../model/Ai.js";
 
+let characterMap = Ai.getAiCharacterMap();
 export class exampleBan extends plugin {
   constructor() {
-    super({
+    let option = {
       /** 功能名称 */
       name: "群聊禁言",
       /** 功能描述 */
@@ -15,24 +16,52 @@ export class exampleBan extends plugin {
       rule: [
         {
           /** 命令正则匹配 */
-          reg: "^#(更新)?(qq|QQ)声聊列表",
+          reg: "^#(更新)?(qq|QQ)?声聊列表",
           /** 执行方法 */
           fnc: "aiCharacters",
         },
         {
           /** 命令正则匹配 */
-          reg: "^#(qq|QQ)声聊说.*",
+          reg: "^#?(qq|QQ)?声聊说.*",
           /** 执行方法 */
           fnc: "sendAiRecord",
         },
         {
           /** 命令正则匹配 */
-          reg: "^#(qq|QQ)声聊设置角色.*",
+          reg: "^#?(qq|QQ)?声聊设置角色.*",
           /** 执行方法 */
           fnc: "setAiRecordRole",
-        },
+        }
       ],
+    };
+    characterMap.keys().forEach((key) => {
+      let reg = `^#?${key}说.*`;
+      option.rule.push({
+        /** 命令正则匹配 */
+        reg,
+        /** 执行方法 */
+        fnc: "voice",
+      });
     });
+
+    super(option);
+  }
+
+  async voice(e) {
+    let msg = e.msg.replace("#", "");
+
+    // 找到第一个“说”字的位置
+    let firstIndex = msg.indexOf("说");
+
+    // 使用 substring 方法从字符串开始到第一个“说”字后面的内容
+    let name = msg.substring(0, firstIndex);
+    let current = characterMap.get(name);
+    const text = msg.substring(firstIndex+1);
+    if (current && text) {
+      await e.group.sendGroupAiRecord(current, text);
+      return true;
+    }
+    return false
   }
 
   async aiCharacters(e) {
@@ -62,14 +91,14 @@ export class exampleBan extends plugin {
   }
 
   async sendAiRecord(e) {
-    let text = e.msg.replace(/^#(qq|QQ)声聊说/, "").trim();
+    let text = e.msg.replace(/^#(qq|QQ)?声聊说/, "").trim();
     if (!text) return false;
     return await Ai.sendRecordByType(e, text);
   }
 
   async setAiRecordRole(e) {
     if (!Config.masterQQ.includes(e.user_id)) return true;
-    let roleName = e.msg.replace(/^#(qq|QQ)声聊设置角色/, "").trim();
+    let roleName = e.msg.replace(/^#(qq|QQ)?声聊设置角色/, "").trim();
     let aiData = Config.getDataJson("ai-characters");
     let targetCharacter;
     for (const category of aiData) {
