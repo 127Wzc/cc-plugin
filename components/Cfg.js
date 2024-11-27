@@ -41,6 +41,10 @@ class Config {
     return cfg.masterQQ;
   }
 
+  get master() {
+    return cfg.master
+  }
+
   get qqConfig() {
     return this.getDefOrConfig("qqConfig");
   }
