@@ -296,16 +296,18 @@ export class chuo extends plugin {
   }
 
   async chuoyichuo(e) {
-
+    const operatorId  = e.operator_id || e.user_id
+    if(!operatorId)
+      return false
     //只记录别人的戳一戳计数
-    if(e.user_id != e.self_id){
-      let key = `Yunzai:cc-poke:${e.group_id}:${e.user_id}:${e.target_id}`;
+    if(operatorId != e.self_id){
+      let key = `Yunzai:cc-poke:${e.group_id}:${operatorId}:${e.target_id}`;
       let res = await global.redis.get(key);
       if (!res) {
         //初始缓存计数
         await global.redis.set(key, 1, { EX: 3 });
       } else if (res && parseInt(res) >= 2) {
-        await e.group.muteMember(e.user_id, 60);
+        await e.group.muteMember(operatorId, 60);
         e.reply("有模块🐷咪，去小黑屋里吧！🐷🐷！");
         return false;
       } else {
@@ -380,22 +382,22 @@ export class chuo extends plugin {
           await common.sleep(500);
           e.reply("玉！！");
           await common.sleep(500);
-          await e.group.muteMember(e.user_id, 60);
+          await e.group.muteMember(operatorId, 60);
         }
       } else {
         e.reply("吃玉玉一咬!~");
         await common.sleep(500);
-        await e.group.pokeMember(e.user_id);
+        await e.group.pokeMember(operatorId);
       }
     } else if (Config.masterQQ.includes(e.target_id)) {
       //生成0-100的随机数
-      if (!(e.user_id == e.self_id || e.operator_id == e.self_id) && random_type <= 0.5) {
+      if (!(operatorId  == e.self_id) && random_type <= 0.5) {
         e.reply("不准戳主人！～，让你戳！");
         await common.sleep(500);
-        await e.group.pokeMember(e.user_id);
+        await e.group.pokeMember(operatorId);
         e.reply("让你戳主人！我戳戳戳戳戳你！");
         await common.sleep(500);
-        await e.group.pokeMember(e.user_id);
+        await e.group.pokeMember(operatorId);
       }
     }
     }

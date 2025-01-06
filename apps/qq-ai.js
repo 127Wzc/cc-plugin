@@ -58,7 +58,9 @@ export class exampleBan extends plugin {
     let current = characterMap.get(name);
     const text = msg.substring(firstIndex+1);
     if (current && text) {
-      await e.group.sendGroupAiRecord(current, text);
+      if (typeof e.group.sendGroupAiRecord === 'function') {
+        await e.group.sendGroupAiRecord(current, text);
+      }
       return true;
     }
     return false

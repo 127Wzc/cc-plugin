@@ -18,12 +18,22 @@ export default class Ai {
   }
 
   static async sendRecordByType(e, message){
+
     let aiConfig = Config.qqConfig.ai
     let character_id = aiConfig.characterId ? aiConfig.characterId : "lucy-voice-laibixiaoxin"
     if(aiConfig.type == 0){
         character_id = Ai.getRandomAiCharacters()
     }
-    await e.group.sendGroupAiRecord(character_id, message)
+
+    // 在调用 sendGroupAiRecord 前添加判断
+    if (typeof e.group.sendGroupAiRecord === 'function') {
+      await e.group.sendGroupAiRecord(character_id, message)
+    } else {
+      // 可以在这里添加提示或者其他处理逻辑
+      logger.debug('当前 Bot 不支持 sendGroupAiRecord 方法')
+      // 或者返回错误信息
+      return false
+    }
     return true
   }
   
