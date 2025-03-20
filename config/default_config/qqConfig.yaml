@@ -1,9 +1,7 @@
 #表情回复设置
 emoji:
-  #表情回复类型 0 随机 1 指定
-  type: 0
-  #表情回复id 来自data/face-config.json QCid或者系统表情QSid
-  emojiId: 66
+  #表情响应qq ： 0随机  >0该指定的 
+  1274925976: 0
 #qq群ai语音回复设置
 ai:
   #群ai回复类型 0 随机 1 指定

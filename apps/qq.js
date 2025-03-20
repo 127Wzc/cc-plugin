@@ -1,5 +1,6 @@
 import fetch from "node-fetch";
 import Config from "../components/Cfg.js";
+import { getAllFaceIds } from '../model/Face.js'
 
 export class myQQ extends plugin {
   constructor() {
@@ -30,10 +31,18 @@ export class myQQ extends plugin {
   }
 
   async emojiLike(e) {
-    if (Config.masterQQ.includes(e.user_id)) {
-      if(typeof e?.group?.setEmojiLike === 'function'){
-        //表情回应
-        e.group?.setEmojiLike(e.message_id, "66");
+    if(typeof e?.group?.setEmojiLike === 'function'){
+      //表情回应
+      let emojiMap = Config.qqConfig.emoji
+      try{
+        if(e.user_id in emojiMap && emojiMap[e.user_id] != 0){
+          e.group?.setEmojiLike(e.message_id, emojiMap[e.user_id]);
+        }else if(e.user_id in emojiMap && emojiMap[e.user_id] == 0){
+          const randomFaceId = getAllFaceIds()[Math.floor(Math.random() * getAllFaceIds().length)];
+          e.group?.setEmojiLike(e.message_id, randomFaceId);
+        }
+      } catch (error) {
+        logger.error(error);
       }
     }
     return false;
