@@ -77,7 +77,7 @@ function registerCallbackRoute() {
                     // 添加分析结果文字
                     msgParts.push(`\n🤖 AI 分析完成\n` +
                         `🏷️ ${tagStr}\n` +
-                        `📝 ${(data.description || '').slice(0, 100)}`)
+                        `📝 ${data.description || ''}`)
 
                     logger.info(`[ImgTag] 发送通知: userId=${taskInfo.userId}, groupId=${taskInfo.groupId}, botId=${taskInfo.botId}`)
 
