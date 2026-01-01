@@ -1,0 +1,33 @@
+# ImgTag 智能图床 API 配置
+
+# API 服务地址 (必填)
+api_url: "http://localhost:8000"
+
+# API 密钥 (必填，在 ImgTag 个人中心生成)
+api_key: ""
+
+# 本地存储路径 (相对于 Yunzai 根目录)
+local_path: "./resources/imgtag"
+
+# 是否自动同步到云端
+auto_sync: false
+
+# 是否启用 AI 自动分析标签
+auto_analyze: false
+
+# 默认分类 ID (可选，留空使用系统默认的其他 - 7)
+default_category_id: 4
+
+# 发图策略: local_first(本地优先) | remote_only(仅远程) | local_only(仅本地)
+send_strategy: "local_first"
+
+# 搜索结果最大返回数量
+search_limit: 3
+
+# 随机图默认返回数量
+random_count: 1
+
+# 回调 URL (用于接收 AI 分析完成通知)
+# 格式: http://你的公网IP:端口/imgtag/callback
+# 如果不需要回调通知，留空即可
+callback_url: ""

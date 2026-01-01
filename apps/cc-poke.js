@@ -4,6 +4,7 @@ import path from "path";
 import common from "../../../lib/common/common.js";
 import Ai from "../model/Ai.js";
 import { getPokeDataByKey } from "../model/PokeCommon.js";
+import ImgTagService from "../model/ImgTagService.js";
 
 const _path = process.cwd();
 //在这里设置事件概率,请保证概率加起来小于1，少于1的部分会触发反击
@@ -15,8 +16,7 @@ let mutepick = 0.1; //禁言概率
 let example = 0.1; //拍一拍表情概率
 //剩下的0.08概率就是反击
 
-//定义图片存放路径 默认是Yunzai-Bot/resources/chuochuo
-const chuo_path = "/resources/logier/emoji";
+
 
 // //图片需要从1开始用数字命名并且保存为jpg或者gif格式，存在Yunzai-Bot/resources/chuochuo/目录下
 // let jpg_number = 17 //输入jpg图片数量
@@ -93,11 +93,11 @@ export class chuo extends plugin {
   }
 
   async chuoyichuo(e) {
-    const operatorId  = e.operator_id || e.user_id
-    if(!operatorId)
+    const operatorId = e.operator_id || e.user_id
+    if (!operatorId)
       return false
     //只记录别人的戳一戳计数
-    if(operatorId != e.self_id){
+    if (operatorId != e.self_id) {
       let key = `Yunzai:cc-poke:${e.group_id}:${operatorId}:${e.target_id}`;
       let res = await global.redis.get(key);
       if (!res) {
@@ -130,26 +130,43 @@ export class chuo extends plugin {
           await e.reply(msg);
         }
       } else if (random_type < reply_text + reply_img) {
-        //回复随机图片
-        const keys = Object.keys(memelist);
-        let randomIndex = Math.ceil(Math.random() * keys.length - 1);
-        logger.info("key=" + keys[randomIndex]);
-        await e.reply(
-          segment.image(
-            `http://hanhan.avocado.wiki/?${memelist[keys[randomIndex]]}`
-          )
-        );
+        //回复随机图片 - 使用 ImgTag 搜索生气或喜欢的表情
+        const sendFallback = async () => {
+          const keys = Object.keys(memelist)
+          const randomIndex = Math.ceil(Math.random() * keys.length - 1)
+          await e.reply(segment.image(`http://hanhan.avocado.wiki/?${memelist[keys[randomIndex]]}`))
+        }
+
+        try {
+          const tags = Math.random() < 0.5 ? ['生气'] : ['喜欢']
+          const result = await ImgTagService.getRandomImages(tags, 1)
+          const img = result?.images?.[0]
+          const imagePath = img ? ImgTagService.getImagePath(img) : null
+
+          if (imagePath) {
+            await e.reply(segment.image(imagePath))
+          } else {
+            await sendFallback()
+          }
+        } catch (err) {
+          logger.warn(`[cc-poke] ImgTag 获取失败: ${err.message}`)
+          await sendFallback()
+        }
       } else if (random_type < reply_text + reply_img + reply_file) {
-        //回复随机本体图片
-        //读取文件夹里面的所有图片文件名
-        let photo_list = fs.readdirSync(path.join(_path, chuo_path));
-        //随机选择一个文件名
-        let photo_number = Math.floor(Math.random() * photo_list.length);
-        await e.reply(
-          segment.image(
-            "file://" + path.join(_path, chuo_path, photo_list[photo_number])
-          )
-        );
+        //回复随机本体图片（实时扫描目录）
+        const localPath = ImgTagService.localPath;
+        if (fs.existsSync(localPath)) {
+          const photo_list = fs.readdirSync(localPath)
+            .filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
+          if (photo_list.length > 0) {
+            const randomFile = photo_list[Math.floor(Math.random() * photo_list.length)];
+            await e.reply(segment.image("file://" + path.join(localPath, randomFile)));
+          } else {
+            logger.warn(`[cc-poke] 本地图片目录为空: ${localPath}`);
+          }
+        } else {
+          logger.warn(`[cc-poke] 本地图片目录不存在: ${localPath}`);
+        }
       } else if (
         random_type <
         reply_text + reply_img + reply_file + reply_voice
@@ -192,7 +209,7 @@ export class chuo extends plugin {
       }
     } else if (Config.masterQQ.includes(e.target_id)) {
       //生成0-100的随机数
-      if (!(operatorId  == e.self_id) && random_type <= 0.5) {
+      if (!(operatorId == e.self_id) && random_type <= 0.5) {
         e.reply("不准戳主人！～，让你戳！");
         await common.sleep(500);
         await e.group.pokeMember(operatorId);
@@ -200,10 +217,10 @@ export class chuo extends plugin {
         await common.sleep(500);
         await e.group.pokeMember(operatorId);
       }
-    } else{
+    } else {
       // 获取回复文字列表
       const word_list = getPokeDataByKey(e.target_id);
-      if(word_list.length > 0){
+      if (word_list.length > 0) {
         let text_number = Math.ceil(Math.random() * word_list.length);
         let msg = word_list[text_number - 1];
         await e.reply(msg);
@@ -214,5 +231,5 @@ export class chuo extends plugin {
       return false;
     }
 
-    }
+  }
 }
