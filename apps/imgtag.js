@@ -277,7 +277,7 @@ export class ImgTag extends plugin {
      * 指令: #搜图 [关键词/标签]
      */
     async searchImage(e) {
-        const keyword = e.msg.replace(/^#?搜图/, '').trim()
+        const keyword = e.msg.replace(/^#?cc搜图/, '').trim()
 
         // 检查配置
         const config = ImgTagService.config
@@ -332,7 +332,7 @@ export class ImgTag extends plugin {
      */
     async randomImage(e) {
         // 解析标签
-        let tagStr = e.msg.replace(/^#?(随机图|来张)/, '').trim()
+        let tagStr = e.msg.replace(/^#?cc(随机图|来张)/, '').trim()
         const tags = tagStr ? tagStr.split(/\s+/).filter(t => t) : []
 
         // 检查配置
