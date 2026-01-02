@@ -167,19 +167,20 @@ export class ImgTag extends plugin {
         if (e.img && e.img.length > 0) {
             imageUrls = e.img
         }
-        // 从引用消息获取图片
-        else if (e.source) {
+        // 从引用消息获取图片（参考 SavePic.js 写法）
+        else {
             try {
-                const reply = await e.getReply()
-                if (reply && reply.message) {
-                    for (const item of reply.message) {
+                const replyData = await e.getReply()
+                if (replyData?.message) {
+                    for (const item of replyData.message) {
                         if (item.type === 'image' || item.type === 'mface') {
                             imageUrls.push(item.url)
                         }
                     }
                 }
             } catch (err) {
-                logger.error(`[ImgTag] 获取引用消息失败: ${err}`)
+                // 无引用消息时忽略错误
+                logger.debug(`[ImgTag] 获取引用消息: ${err.message || '无引用消息'}`)
             }
         }
 
