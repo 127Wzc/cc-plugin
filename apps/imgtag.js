@@ -2,7 +2,7 @@ import ImgTagService from '../model/ImgTagService.js'
 import Config from '../components/Cfg.js'
 import common from '../../../lib/common/common.js'
 
-// 存储待回调的任务 {taskId: {md5, resolve, userId, groupId, botId}}
+// 存储待回调的任务 {taskId: {md5, resolve, userId, groupId, botId, sourceMessageId}}
 const pendingCallbacks = new Map()
 
 // 标记路由是否已注册
@@ -56,32 +56,38 @@ function registerCallbackRoute() {
                     logger.info(`[ImgTag] 已更新本地索引: md5=${taskInfo.md5}`)
                 }
 
-                // 如果有关联的用户，发送通知（图片 + 分析结果）
+                // 如果有关联的用户，发送通知
                 if (taskInfo?.userId && taskInfo?.botId) {
                     const tagStr = data.tags?.slice(0, 8).join(' · ') || '无'
 
-                    // 构建消息：图片 + 分析结果
-                    const msgParts = []
-
-                    // 优先使用本地图片
-                    let imagePath = null
-                    if (taskInfo.md5) {
-                        imagePath = ImgTagService.findLocalPath(taskInfo.md5)
-                    }
-                    if (imagePath) {
-                        msgParts.push(segment.image(`file://${imagePath}`))
-                    } else if (data.image_url) {
-                        msgParts.push(segment.image(data.image_url))
-                    }
-
-                    // 添加分析结果文字
-                    msgParts.push(`\n🤖 AI 分析完成\n` +
+                    // 分析结果文字
+                    const resultText = `🤖 AI 分析完成\n` +
                         `🏷️ ${tagStr}\n` +
-                        `📝 ${data.description || ''}`)
+                        `📝 ${data.description || ''}`
 
-                    logger.info(`[ImgTag] 发送通知: userId=${taskInfo.userId}, groupId=${taskInfo.groupId}, botId=${taskInfo.botId}`)
+                    logger.info(`[ImgTag] 发送通知: userId=${taskInfo.userId}, groupId=${taskInfo.groupId}, botId=${taskInfo.botId}, sourceMessageId=${taskInfo.sourceMessageId}`)
 
                     try {
+                        // 构建消息
+                        let msgParts = []
+
+                        // 如果有原图消息 ID，使用引用回复原消息，不再发图片
+                        if (taskInfo.sourceMessageId) {
+                            msgParts = [segment.reply(taskInfo.sourceMessageId), resultText]
+                        } else {
+                            // 没有引用消息，发送图片 + 分析结果
+                            let imagePath = null
+                            if (taskInfo.md5) {
+                                imagePath = ImgTagService.findLocalPath(taskInfo.md5)
+                            }
+                            if (imagePath) {
+                                msgParts.push(segment.image(`file://${imagePath}`))
+                            } else if (data.image_url) {
+                                msgParts.push(segment.image(data.image_url))
+                            }
+                            msgParts.push(`\n${resultText}`)
+                        }
+
                         if (taskInfo.groupId) {
                             await Bot.sendGroupMsg(taskInfo.botId, taskInfo.groupId, msgParts)
                             logger.info(`[ImgTag] 已发送群消息到 ${taskInfo.groupId}`)
@@ -222,9 +228,11 @@ export class ImgTag extends plugin {
                                 md5: localResult.md5,
                                 userId: e.user_id,
                                 groupId: e.group_id,
-                                botId: e.self_id
+                                botId: e.self_id,
+                                // 保存原图消息 ID，用于回调时引用回复
+                                sourceMessageId: e.reply_id || null
                             })
-                            logger.info(`[ImgTag] 注册回调任务: image_id=${cloudResult.id}`)
+                            logger.info(`[ImgTag] 注册回调任务: image_id=${cloudResult.id}, sourceMessageId=${e.reply_id || 'null'}`)
                         }
                     } catch (apiErr) {
                         logger.error(`[ImgTag] 云端上传失败: ${apiErr}`)
@@ -269,7 +277,8 @@ export class ImgTag extends plugin {
             }
         }
 
-        e.reply(replyMsg, true)
+        // 发送成功消息，10秒后自动撤回
+        e.reply(replyMsg, true, { recallMsg: 10 })
         return true
     }
 
