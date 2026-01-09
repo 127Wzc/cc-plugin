@@ -195,9 +195,17 @@ export class ImgTag extends plugin {
             return true
         }
 
-        // 解析标签
-        const msgContent = e.msg.replace(/^#?(偷图|存图)/, '').trim()
-        const tags = msgContent ? msgContent.split(/\s+/).filter(t => t) : []
+        // 解析标签 - 支持 #偷图#tag1,tag2,tag3 或 #偷图 tag1 tag2 格式
+        // 先提取 # 后面的标签部分
+        let tagPart = e.msg.replace(/^#?(cc)?(偷图|存图)/, '').trim()
+
+        // 如果以 # 开头，表示使用 #tag1,tag2 格式
+        if (tagPart.startsWith('#')) {
+            tagPart = tagPart.substring(1) // 移除开头的 #
+        }
+
+        // 支持逗号、空格、中文逗号作为分隔符
+        const tags = tagPart ? tagPart.split(/[,，\s]+/).filter(t => t.trim()).map(t => t.trim()) : []
 
         // 处理每张图片
         const results = []
