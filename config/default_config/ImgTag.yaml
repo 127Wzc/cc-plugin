@@ -31,3 +31,9 @@ random_count: 1
 # 格式: http://你的公网IP:端口/imgtag/callback
 # 如果不需要回调通知，留空即可
 callback_url: ""
+
+# 禁用的图片外显关键词列表
+# 这些外显文字会被忽略，不作为标签上传
+disabled_summary:
+  - "动画表情"
+  - "图片"

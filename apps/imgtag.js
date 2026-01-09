@@ -122,6 +122,41 @@ function registerCallbackRoute() {
 }
 
 /**
+ * 从消息项中提取图片信息和图片外显 summary
+ * @param {Array} messages 消息数组
+ * @param {Array} disabledSummary 禁用的外显关键词列表
+ * @returns {Array} [{url, mfaceSummary}]
+ */
+function extractImagesFromMessages(messages, disabledSummary = []) {
+    const imgData = []
+    if (!messages) return imgData
+
+    for (const item of messages) {
+        if (item.type === 'image' || item.type === 'mface') {
+            let summary = ''
+            if (item.summary) {
+                // 去除方括号后检查长度，超过4个字符视为异常不使用
+                const cleanSummary = item.summary.replace(/[\[\]【】]/g, '').trim()
+
+                // 检查是否在禁用列表中
+                const isDisabled = disabledSummary.some(keyword => cleanSummary === keyword)
+
+                if (isDisabled) {
+                    logger.debug(`[ImgTag] 外显禁用关键字已忽略: ${cleanSummary}`)
+                } else if (cleanSummary.length <= 4) {
+                    summary = item.summary
+                    logger.mark(`[ImgTag] 检测到图片外显: ${summary} (长度: ${cleanSummary.length})`)
+                } else {
+                    logger.debug(`[ImgTag] summary 过长跳过: ${item.summary} (长度: ${cleanSummary.length})`)
+                }
+            }
+            imgData.push({ url: item.url, mfaceSummary: summary })
+        }
+    }
+    return imgData
+}
+
+/**
  * ImgTag 智能图床插件
  * 支持偷图、搜图、随机发图等功能
  */
@@ -151,9 +186,7 @@ export class ImgTag extends plugin {
                 }
             ]
         })
-
-        // 在插件加载时注册回调路由
-        registerCallbackRoute()
+        // 路由已在模块顶层注册，无需在构造函数中重复调用
     }
 
     /**
@@ -166,31 +199,45 @@ export class ImgTag extends plugin {
             return false
         }
 
-        // 获取图片 URL 列表
-        let imageUrls = []
+        // 获取图片数据列表 [{url, mfaceSummary}]
+        let imgData = []
 
-        // 从当前消息获取图片
+        // 获取禁用外显关键词列表
+        const config = ImgTagService.config
+        const disabledSummary = config.disabled_summary || []
+
+        // 从当前消息获取图片（直接发送的图片没有 summary）
         if (e.img && e.img.length > 0) {
-            imageUrls = e.img
+            imgData = e.img.map(url => ({ url, mfaceSummary: '' }))
         }
-        // 从引用消息获取图片（参考 SavePic.js 写法）
-        else {
+        // 从引用消息获取图片
+        else if (e.source) {
+            // 优先使用 e.source 方式获取（可以获取更多信息如 summary）
+            try {
+                let sourceMsg
+                if (e.isGroup) {
+                    sourceMsg = (await e.group.getChatHistory(e.source.seq, 1)).pop()
+                } else {
+                    sourceMsg = (await e.friend.getChatHistory(e.source.time, 1)).pop()
+                }
+                logger.debug(`[ImgTag] e.source 获取结果: ${JSON.stringify(sourceMsg?.message?.map(m => ({ type: m.type, summary: m.summary })))}`)
+                imgData = extractImagesFromMessages(sourceMsg?.message, disabledSummary)
+            } catch (err) {
+                logger.debug(`[ImgTag] 通过 e.source 获取失败: ${err.message}`)
+            }
+        }
+        // 兼容 e.getReply 方式
+        if (imgData.length === 0 && e.getReply) {
             try {
                 const replyData = await e.getReply()
-                if (replyData?.message) {
-                    for (const item of replyData.message) {
-                        if (item.type === 'image' || item.type === 'mface') {
-                            imageUrls.push(item.url)
-                        }
-                    }
-                }
+                logger.debug(`[ImgTag] e.getReply 获取结果: ${JSON.stringify(replyData?.message?.map(m => ({ type: m.type, summary: m.summary })))}`)
+                imgData = extractImagesFromMessages(replyData?.message, disabledSummary)
             } catch (err) {
-                // 无引用消息时忽略错误
                 logger.debug(`[ImgTag] 获取引用消息: ${err.message || '无引用消息'}`)
             }
         }
 
-        if (imageUrls.length === 0) {
+        if (imgData.length === 0) {
             e.reply('❌ 请回复一张图片或直接发送图片', true)
             return true
         }
@@ -205,24 +252,34 @@ export class ImgTag extends plugin {
         }
 
         // 支持逗号、空格、中文逗号作为分隔符
-        const tags = tagPart ? tagPart.split(/[,，\s]+/).filter(t => t.trim()).map(t => t.trim()) : []
+        const baseTags = tagPart ? tagPart.split(/[,，\s]+/).filter(t => t.trim()).map(t => t.trim()) : []
 
         // 处理每张图片
         const results = []
-        const config = ImgTagService.config
         const callbackUrl = config.callback_url || ''
 
-        for (const url of imageUrls) {
+        for (const imgInfo of imgData) {
             try {
+                // 合并标签：用户标签 + mface summary（如果有）
+                let imageTags = [...baseTags]
+                if (imgInfo.mfaceSummary) {
+                    // 将 mface summary 作为标签添加（去除可能的方括号等特殊字符）
+                    const summaryTag = imgInfo.mfaceSummary.replace(/[\[\]【】]/g, '').trim()
+                    if (summaryTag && !imageTags.includes(summaryTag)) {
+                        imageTags.push(summaryTag)
+                        logger.mark(`[ImgTag] 检测到图片外显: ${summaryTag}`)
+                    }
+                }
+
                 // 1. 保存到本地
-                const localResult = await ImgTagService.saveLocal(url)
+                const localResult = await ImgTagService.saveLocal(imgInfo.url)
                 const shortMd5 = localResult.md5.substring(0, 8)
 
                 // 2. 上传到云端 (如果启用)
                 let cloudResult = null
                 if (config.auto_sync && config.api_url && config.api_key) {
                     try {
-                        cloudResult = await ImgTagService.addImage(url, tags, '', callbackUrl)
+                        cloudResult = await ImgTagService.addImage(imgInfo.url, imageTags, '', callbackUrl)
                         // 更新本地索引
                         ImgTagService.updateIndex(localResult.md5, {
                             synced: true,
@@ -251,7 +308,9 @@ export class ImgTag extends plugin {
                     md5: shortMd5,
                     isNew: localResult.isNew,
                     synced: !!cloudResult,
-                    tags: cloudResult?.tags || tags
+                    tags: cloudResult?.tags || imageTags,
+                    // 保存图片外显名称用于回复展示
+                    mfaceName: imgInfo.mfaceSummary ? imgInfo.mfaceSummary.replace(/[\[\]【】]/g, '').trim() : ''
                 })
 
             } catch (err) {
@@ -265,15 +324,21 @@ export class ImgTag extends plugin {
         const newCount = results.filter(r => r.isNew).length
         const syncedCount = results.filter(r => r.synced).length
 
-        let replyMsg = `✅ 处理完成: ${successCount}/${imageUrls.length} 成功`
+        let replyMsg = `✅ 处理完成: ${successCount}/${imgData.length} 成功`
         if (newCount > 0) {
             replyMsg += `\n📥 新增: ${newCount} 张`
         }
         if (syncedCount > 0) {
             replyMsg += `\n☁️ 已同步云端: ${syncedCount} 张`
         }
-        if (tags.length > 0) {
-            replyMsg += `\n🏷️ 标签: ${tags.join(', ')}`
+        if (baseTags.length > 0) {
+            replyMsg += `\n🏷️ 标签: ${baseTags.join(', ')}`
+        }
+
+        // 显示图片外显信息（如果有）
+        const mfaceNames = results.filter(r => r.mfaceName).map(r => r.mfaceName)
+        if (mfaceNames.length > 0) {
+            replyMsg += `\n🎭 图片外显: ${mfaceNames.join(', ')}`
         }
 
         // 显示 MD5 列表 (最多5个)
@@ -452,3 +517,6 @@ export class ImgTag extends plugin {
         return true
     }
 }
+
+// 模块加载时注册回调路由（只执行一次）
+registerCallbackRoute()

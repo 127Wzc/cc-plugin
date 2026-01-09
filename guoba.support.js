@@ -146,6 +146,18 @@ export function supportGuoba() {
                         placeholder: 'http://your-ip:2536/imgtag/callback'
                     }
                 },
+                {
+                    field: 'ImgTag.disabled_summary',
+                    label: '禁用外显关键词',
+                    helpMessage: '这些图片外显文字会被忽略，不作为标签上传',
+                    bottomHelpMessage: '例如: 动画表情、图片 等',
+                    component: 'GTags',
+                    componentProps: {
+                        placeholder: '输入关键词后按回车添加',
+                        allowAdd: true,
+                        allowDel: true
+                    }
+                },
 
                 // ==================== QQ 配置 ====================
                 {
