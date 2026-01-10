@@ -198,13 +198,13 @@ export class banana extends plugin {
             return
         }
 
-        const presetName = preset.name || preset.cmd
+        const presetCmd = preset.cmd  // 使用触发指令而不是名称
         const maxQueue = this.config.max_queue || 5
         const maxConcurrent = this.config.max_concurrent || 1
 
-        enqueueJob(e, `${presetName}`, async () => {
+        enqueueJob(e, `#${presetCmd}`, async () => {
             const fullModel = this.config.default_model || 'gemini-3-pro-image-preview'
-            await this.performGeneration(e, fullModel, preset.prompt, startTime, false, presetName)
+            await this.performGeneration(e, fullModel, preset.prompt, startTime, false, `#${presetCmd}`)
         }, maxQueue, maxConcurrent)
     }
 
