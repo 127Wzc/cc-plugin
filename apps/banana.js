@@ -204,7 +204,7 @@ export class banana extends plugin {
 
         enqueueJob(e, `${presetName}`, async () => {
             const fullModel = this.config.default_model || 'gemini-3-pro-image-preview'
-            await this.performGeneration(e, fullModel, preset.prompt, startTime, false)
+            await this.performGeneration(e, fullModel, preset.prompt, startTime, false, presetName)
         }, maxQueue, maxConcurrent)
     }
 
@@ -273,13 +273,15 @@ export class banana extends plugin {
         return imageUrls
     }
 
-    async performGeneration(e, model, prompt, startTime, isDirectCommand = false) {
+    async performGeneration(e, model, prompt, startTime, isDirectCommand = false, presetName = null) {
         let imageUrls = []
+        let hasReplySource = false  // 标记是否使用了引用消息的图片
 
         // 回复消息中的图片
         const replyImgs = await this.takeSourceMsg(e, { img: true })
         if (Array.isArray(replyImgs) && replyImgs.length > 0) {
             imageUrls.push(...replyImgs)
+            hasReplySource = true  // 使用了引用消息
         }
 
         // 当前消息里的图片
@@ -406,8 +408,9 @@ export class banana extends plugin {
                     const countText = resultImageUrls.length > 1 ? `\n📷 共 ${resultImageUrls.length} 张图片` : ''
 
                     const replyMsg = resultImageUrls.map(url => segment.image(url))
-                    replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${countText}`)
-                    await e.reply(replyMsg)
+                    const presetText = presetName ? `\n🎯 预设: ${presetName}` : ''
+                    replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}${countText}`)
+                    await e.reply(replyMsg, hasReplySource)  // 如果使用了引用消息的图片，则引用回复
                 }
             } else {
                 throw new Error(result.error)
