@@ -159,6 +159,136 @@ export function supportGuoba() {
                     }
                 },
 
+                // ==================== Banana 配置 ====================
+                {
+                    label: 'Banana 大香蕉',
+                    component: 'SOFT_GROUP_BEGIN'
+                },
+                {
+                    label: 'API 配置',
+                    component: 'Divider'
+                },
+                {
+                    field: 'Banana.api_url',
+                    label: 'API 服务地址',
+                    helpMessage: 'API 后端服务的 URL 地址',
+                    bottomHelpMessage: '例如: https://hw-newapi.559558.xyz/v1/chat/completions',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: '请输入 API 服务地址'
+                    }
+                },
+                {
+                    field: 'Banana.default_model',
+                    label: '默认模型',
+                    helpMessage: '生成图片时使用的默认模型，可手动输入自定义模型名称',
+                    bottomHelpMessage: '支持下拉选择或直接输入模型名',
+                    component: 'AutoComplete',
+                    componentProps: {
+                        placeholder: '选择或输入模型名称',
+                        allowClear: true,
+                        options: [
+                            { label: 'Gemini 3.0 Pro Image Preview', value: 'gemini-3-pro-image-preview' },
+                            { label: 'Gemini 2.5 Flash Image', value: 'gemini-2.5-flash-image' },
+                            { label: 'Gemini 3.0 Pro Image', value: 'gemini-3.0-pro-image' },
+                            { label: 'Imagen 4.0', value: 'imagen-4.0-generate-preview' },
+                            { label: 'nano-banana', value: 'nano-banana' }
+                        ]
+                    }
+                },
+                {
+                    label: '功能设置',
+                    component: 'Divider'
+                },
+                {
+                    field: 'Banana.use_stream',
+                    label: '流式响应',
+                    helpMessage: '是否使用流式响应模式',
+                    bottomHelpMessage: '启用后可以看到生成进度',
+                    component: 'Switch'
+                },
+                {
+                    field: 'Banana.max_concurrent',
+                    label: '最大并发数',
+                    helpMessage: '同时执行的任务数量',
+                    bottomHelpMessage: '建议设置为 1-3',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 1,
+                        max: 5,
+                        placeholder: '1'
+                    }
+                },
+                {
+                    field: 'Banana.max_queue',
+                    label: '最大队列',
+                    helpMessage: '最大等待队列长度',
+                    bottomHelpMessage: '超过此数量将拒绝新请求',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 1,
+                        max: 20,
+                        placeholder: '5'
+                    }
+                },
+                {
+                    field: 'Banana.disable_keys_on_error',
+                    label: '错误时禁用密钥',
+                    helpMessage: '密钥失败次数过多时自动禁用',
+                    component: 'Switch'
+                },
+                {
+                    label: '预设管理',
+                    component: 'Divider'
+                },
+                {
+                    field: 'Banana.presets',
+                    label: '预设列表',
+                    helpMessage: '配置预设关键字和提示词',
+                    bottomHelpMessage: '每个预设包含: cmd(关键字), name(名称), desc(描述), prompt(提示词)',
+                    component: 'GSubForm',
+                    componentProps: {
+                        multiple: true,
+                        schemas: [
+                            {
+                                field: 'cmd',
+                                label: '关键字',
+                                component: 'Input',
+                                required: true,
+                                componentProps: {
+                                    placeholder: '例如: 手办化'
+                                }
+                            },
+                            {
+                                field: 'name',
+                                label: '名称',
+                                component: 'Input',
+                                componentProps: {
+                                    placeholder: '显示名称'
+                                }
+                            },
+                            {
+                                field: 'desc',
+                                label: '描述',
+                                component: 'Input',
+                                componentProps: {
+                                    placeholder: '功能描述'
+                                }
+                            },
+                            {
+                                field: 'prompt',
+                                label: '提示词',
+                                component: 'InputTextArea',
+                                required: true,
+                                componentProps: {
+                                    placeholder: '生成图片的提示词',
+                                    autoSize: { minRows: 2, maxRows: 6 }
+                                }
+                            }
+                        ]
+                    }
+                },
+
                 // ==================== QQ 配置 ====================
                 {
                     label: 'QQ 功能配置',
@@ -197,6 +327,7 @@ export function supportGuoba() {
             getConfigData() {
                 return {
                     ImgTag: Config.getDefOrConfig('ImgTag'),
+                    Banana: Config.getDefOrConfig('Banana'),
                     qqConfig: Config.getDefOrConfig('qqConfig')
                 }
             },
@@ -204,12 +335,12 @@ export function supportGuoba() {
             // 设置配置数据
             setConfigData(data, { Result }) {
                 for (let [keyPath, value] of Object.entries(data)) {
-                    // keyPath 格式: ImgTag.api_url 或 qqConfig.ai.type
+                    // keyPath 格式: ImgTag.api_url 或 qqConfig.ai.type 或 Banana.api_url
                     const parts = keyPath.split('.')
-                    const configName = parts[0]  // ImgTag 或 qqConfig
+                    const configName = parts[0]  // ImgTag 或 qqConfig 或 Banana
                     const fieldPath = parts.slice(1).join('.')  // api_url 或 ai.type
 
-                    if (configName === 'ImgTag' || configName === 'qqConfig') {
+                    if (configName === 'ImgTag' || configName === 'qqConfig' || configName === 'Banana') {
                         Config.modify(configName, fieldPath, value)
                     }
                 }

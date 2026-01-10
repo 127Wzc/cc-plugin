@@ -1,0 +1,353 @@
+# Banana 大香蕉插件配置
+
+# API 服务地址
+api_url: "https://hw-newapi.559558.xyz/v1/chat/completions"
+
+# 默认模型
+default_model: "gemini-3-pro-image-preview"
+
+# 是否使用流式响应
+use_stream: true
+
+# 队列最大并发数
+max_concurrent: 1
+
+# 队列最大长度
+max_queue: 5
+
+# 是否在错误时禁用密钥
+disable_keys_on_error: false
+
+# 密钥每日失败阈值 (超过此值自动禁用)
+daily_fail_threshold: 10
+
+# 预设列表
+# 每个预设包含: cmd(命令), name(名称), desc(描述), prompt(提示词)
+presets:
+  - cmd: "手办化"
+    name: "手办化"
+    desc: "将人物/主体真实商业化PVC手办化"
+    prompt: |
+      Please accurately transform the main subject in this photo into a realistic, masterpiece-like 1/7 scale PVC statue.
+      Behind this statue, a packaging box should be placed: the box has a large clear front window on its front side, and is printed with subject artwork, product name, brand logo, barcode, as well as a small specifications or authenticity verification panel. A small price tag sticker must also be attached to one corner of the box. Meanwhile, a computer monitor is placed at the back, and the monitor screen needs to display the ZBrush modeling process of this statue.
+      In front of the packaging box, this statue should be placed on a round plastic base. The statue must have 3D dimensionality and a sense of realism, and the texture of the PVC material needs to be clearly represented. If the background can be set as an indoor scene, the effect will be even better.
+
+      Below are detailed guidelines to note:
+      When repairing any missing parts, there must be no poorly executed elements.
+      When repairing human figures (if applicable), the body parts must be natural, movements must be coordinated, and the proportions of all parts must be reasonable.
+      If the original photo is not a full-body shot, try to supplement the statue to make it a full-body version.
+      The human figure's expression and movements must be exactly consistent with those in the photo.
+      The figure's head should not appear too large, its legs should not appear too short, and the figure should not look stunted—this guideline may be ignored if the statue is a chibi-style design.
+      For animal statues, the realism and level of detail of the fur should be reduced to make it more like a statue rather than the real original creature.
+      No outer outline lines should be present, and the statue must not be flat.
+      Please pay attention to the perspective relationship of near objects appearing larger and far objects smaller.
+
+  - cmd: "手办化2"
+    name: "手办化2"
+    desc: "手办化-桌面展示与包装"
+    prompt: |
+      Use the nano-banana model to create a 1/7 scale commercialized figure of the character in the illustration, in a realistic style and environment.
+      Place the figure on a computer desk, using a circular transparent acrylic base without any text.
+      On the computer screen, display the ZBrush modeling process of the figure.
+      Next to the computer screen, place a BANDAI-style toy packaging box printed with the original artwork.
+
+  - cmd: "手办化3"
+    name: "手办化3"
+    desc: "手办化-更强一致性与写实"
+    prompt: |
+      Your primary mission is to accurately convert the subject from the user's photo into a photorealistic, masterpiece quality, 1/7 scale PVC figurine, presented in its commercial packaging.
+
+      **Crucial First Step: Analyze the image to identify the subject's key attributes (e.g., human male, human female, animal, specific creature) and defining features (hair style, clothing, expression). The generated figurine must strictly adhere to these identified attributes.** This is a mandatory instruction to avoid generating a generic female figure.
+
+      **Top Priority - Character Likeness:** The figurine's face MUST maintain a strong likeness to the original character. Your task is to translate the 2D facial features into a 3D sculpt, preserving the identity, expression, and core characteristics. If the source is blurry, interpret the features to create a sharp, well-defined version that is clearly recognizable as the same character.
+
+      **Scene Details:**
+      1. **Figurine:** The figure version of the photo I gave you, with a clear representation of PVC material, placed on a round plastic base.
+      2. **Packaging:** Behind the figure, there should be a partially transparent plastic and paper box, with the character from the photo printed on it.
+      3. **Environment:** The entire scene should be in an indoor setting with good lighting.
+
+  - cmd: "手办化4"
+    name: "手办化4"
+    desc: "手办化-室内布光素材强化"
+    prompt: |
+      Please accurately transform the main subject in this photo into a realistic, masterpiece-like 1/7 scale PVC statue.
+      Behind this statue, a packaging box should be placed: the box has a large clear front window on its front side, and is printed with subject artwork, product name, brand logo, barcode, as well as a small specifications or authenticity verification panel. A small price tag sticker must also be attached to one corner of the box. Meanwhile, a computer monitor is placed at the back, and the monitor screen needs to display the ZBrush modeling process of this statue.
+      In front of the packaging box, this statue should be placed on a round plastic base. The statue must have 3D dimensionality and a sense of realism, and the texture of the PVC material needs to be clearly represented. If the background can be set as an indoor scene, the effect will be even better.
+
+      Below are detailed guidelines to note:
+      When repairing any missing parts, there must be no poorly executed elements.
+      When repairing human figures (if applicable), the body parts must be natural, movements must be coordinated, and the proportions of all parts must be reasonable.
+      If the original photo is not a full-body shot, try to supplement the statue to make it a full-body version.
+      The human figure's expression and movements must be exactly consistent with those in the photo.
+      The figure's head should not appear too large, its legs should not appear too short, and the figure should not look stunted—this guideline may be ignored if the statue is a chibi-style design.
+      For animal statues, the realism and level of detail of the fur should be reduced to make it more like a statue rather than the real original creature.
+      No outer outline lines should be present, and the statue must not be flat.
+      Please pay attention to the perspective relationship of near objects appearing larger and far objects smaller.
+
+  - cmd: "手办化5"
+    name: "手办化5"
+    desc: "手办化-游戏截图风格复刻"
+    prompt: |
+      Realistic PVC figure based on the game screenshot character, exact pose replication highly detailed textures PVC material with subtle sheen and smooth paint finish, placed on an indoor wooden computer desk (with subtle desk items like a figure box/mouse), illuminated by soft indoor light (mix of desk lamp and natural window light) for realistic shadows and highlights, macro photography style, high resolution, sharp focus on the figure, shallow depth of field (desk background slightly blurred but visible), no stylization, true-to-reference color and design, 1:1 scale.
+
+  - cmd: "Q版化"
+    name: "Q版化"
+    desc: "将主体Q版化（无描边/软描边）"
+    prompt: |
+      ((chibi style)), ((super-deformed)), ((head-to-body ratio 1:2)), ((huge head, tiny body)), ((smooth rounded limbs)), ((soft balloon-like hands and feet)), ((plump cheeks)), ((childlike big eyes)), ((simplified facial features)), ((smooth matte skin, no pores)), ((soft pastel color palette)), ((gentle ambient lighting, natural shadows)), ((same facial expression, same pose, same background scene)), ((seamless integration with original environment, correct perspective and scale)), ((no outline or thin soft outline)), ((high resolution, sharp focus, 8k, ultra-detailed)), avoid: realistic proportions, long limbs, sharp edges, harsh lighting, wrinkles, blemishes, thick black outlines, low resolution, blurry, extra limbs, distorted face
+
+  - cmd: "毛绒化"
+    name: "毛绒化"
+    desc: "变成毛绒玩具商品图"
+    prompt: |
+      Turn the subject from the provided photo into a plush toy made of soft minky and short faux fur, with embroidered eyes and mouth, visible seams and a small fabric tag, placed on a round display stand in the foreground; behind it, a windowed packaging box with a large clear front window, printed character artwork, product name, logo, barcode, and a price tag sticker; further back, a computer monitor showing the plush design blueprint; indoor cozy toy-designer studio with wooden desk, sewing tools and pattern papers, warm soft lighting; realistic three-dimensional plush textures, accurate colors from the photo, clean product photo style, front three-quarter view, shallow depth of field, no humans.
+
+  - cmd: "雕塑化"
+    name: "雕塑化"
+    desc: "变成户外青铜雕塑纪实照片"
+    prompt: |
+      Turn the subject from the provided photo into a life-sized bronze statue, displayed in a quiet urban square with stone pavement and trees nearby; the statue stands on a rectangular pedestal with an engraved plaque showing the character's name; realistic bronze texture with slight weathering and patina, sunlight casting natural shadows on the statue; pigeons on the ground and people walking in the distance blurred by shallow depth of field, giving the sense of a real outdoor city scene; documentary-style photography, three-quarter front view, sharp details, no humans posed near the statue.
+
+  - cmd: "主题化"
+    name: "主题化"
+    desc: "角色主题房+周边（含真人cos）"
+    prompt: |
+      Create a highly realistic and meticulously detailed commercial photograph of a themed bedroom, entirely inspired by the adult character from the input illustration.
+
+      Image Completion Rule: If the input illustration is incomplete, first complete the character's full-body image from head to toe. This completion must strictly adhere to the original artwork's composition and pose, extending the character naturally without altering their form or posture. Ensure the overall appearance and all content within the scene are safe, healthy, and free from any inappropriate elements.
+
+      The room's aesthetic, including the color palette and decor, subtly reflects the character's design. The scene must feature a highly realistic human cosplayer alongside a variety of commercial-grade merchandise, all based on the completed character image:
+
+      The Cosplayer: A central element of the scene is a cosplayer whose appearance, hair, and makeup perfectly match the completed character image. They are wearing a meticulously crafted, high-quality costume that is an exact, real-world replica of the character's outfit. The cosplayer is posed naturally within the room, for instance, sitting gracefully on a chair or on the edge of the bed, adding a sense of life and presence to the scene. The textures of the costume fabric and props should be rendered with maximum realism.
+
+      Suede Body Pillow: On the bed, a normal rectangular, human-body-sized pillow made of soft suede material is prominently displayed. It is carefully positioned and angled directly towards the camera, ensuring the high-resolution, full-body print of the character on its surface is completely and clearly visible, showcasing the realistic texture of the fabric.
+
+      1/7 Scale PVC Figure: Inside an ultra-realistic figure display cabinet with glass doors, place a 1/7 scale PVC figure of the character. It should be mounted on a circular, transparent acrylic base without text, showcasing precise details in texture, material, and paintwork.
+
+      Wall Scroll/Painting: On a prominent wall, hang a large, high-quality fabric wall scroll or a framed painting that displays a dynamic or elegant pose of the character.
+
+      Q-Version Keychain: On a desk or hanging from a bag, include a small, cute Q-version (chibi style) acrylic keychain of the character, showing glossy reflections.
+
+      Themed Rug: On the floor, place a circular or stylized rectangular rug. The rug's design should be a tasteful, minimalist graphic or silhouette inspired by the character's symbols or color scheme.
+
+      Ceramic Mug: On a bedside table or the desk, place a ceramic mug with a high-quality print of the character's portrait or Q-version likeness.
+
+      Technical and Stylistic Requirements:
+      Rendering Style: Render the entire scene in a detailed, lifelike style. Maintain highly precise details in the textures and materials of all merchandise, room elements, and the cosplayer's costume.
+      Environment and Depth: The scene should feature a natural depth of field. The cosplayer might be the primary focus, with other elements smoothly transitioning into a soft blur to enhance spatial realism.
+      Lighting: The lighting should be soft, natural, and adaptive, simulating professional commercial photography. It should cast realistic shadows and highlights on the cosplayer, the room, and all objects.
+      Camera Angle: The camera angle is strategically chosen to create a compelling composition that features the cosplayer as a primary subject, while also providing a clear, unobstructed view of the body pillow. The angle should be wide enough to capture the overall layout of the themed room and the placement of the other merchandise cohesively, creating a rich, lived-in feel.
+
+  - cmd: "速写化"
+    name: "速写化"
+    desc: "速写本上的手持拍摄速写图"
+    prompt: |
+      Take the main subject of the image as a sketch object, recreated as a detailed quick sketch on a page of a thick sketchbook, with consistent details, looking like a real sketchbook page captured by a handheld camera.
+
+  - cmd: "六视图"
+    name: "六视图"
+    desc: "六面视图白底等距排布"
+    prompt: |
+      Front, Rear, Left, Right, Top, Bottom views on white. Evenly spaced. Consistent subject. Isometric Perspective Equivalence.
+
+  - cmd: "cos化"
+    name: "cos化"
+    desc: "真人Coser复刻插画姿态（Comiket）"
+    prompt: |
+      Generate a highly detailed photo of a real-life girl cosplaying this illustration, at Comiket. Exactly replicate the same pose, body posture, hand gestures, facial expression, and camera framing as in the original illustration. Keep the same angle, perspective, and composition, without any deviation.
+
+  - cmd: "女友化"
+    name: "女友化"
+    desc: "夜晚快餐店情侣视角食物前景"
+    prompt: |
+      Use the attached image as the exact protagonist (identity lock). Keep her face, hairstyle, hair color, eye color, outfit, and accessories unchanged. Place her in a nighttime fast-food restaurant, sitting with a man in a white T-shirt; they are close and appear like a couple, with red cups and food on their table. In the foreground, a white oval plate holds a cheeseburger and golden fries, with condiment packets and a smartphone nearby. At another table in the scene, a shy young man sits alone, secretly glancing toward the couple with a subtle expression of longing and hidden affection, as if he has a crush on her. The background shows blurred urban night lights through the window, enhancing a romantic yet slightly bittersweet atmosphere. Keep the art style as highly detailed anime illustration, vibrant colors, soft shading, clean line art, and cinematic composition. no identity change, no gender swap, no gay couple, no face replacement, no hairstyle change, no generic anime girl, no photorealism, no style inconsistency
+
+  - cmd: "女友化2"
+    name: "女友化2"
+    desc: "夜晚快餐店两人约会氛围"
+    prompt: |
+      Use the attached image as the exact protagonist (identity lock). Keep her face, hairstyle, hair color, eye color, outfit, and accessories exactly the same without alteration. Do not change her facial features or expression style. Place her in a nighttime fast-food restaurant, sitting with a man in a white T-shirt as if they are a couple, with food and red cups on the table. At another table, a shy young man sits alone, secretly glancing toward her with hidden affection. The background shows blurred urban night lights through the window, enhancing a romantic yet slightly bittersweet atmosphere. Keep the art style as highly detailed anime illustration, vibrant colors, soft shading, clean line art, and cinematic composition. no identity change, no face change, no new facial expressions, no gender swap, no photorealism, no generic anime girl, no style inconsistency
+
+  - cmd: "表情包"
+    name: "表情包"
+    desc: "生成Q版九宫格表情包（网络梗动作）"
+    prompt: |
+      Create a 3x3 grid sticker sheet of the character from the reference image, featuring nine unique 1:1 square stickers on a plain white background. The art style is a unified chibi (Q-version) Ghibli-like cartoon style with vibrant colors. Each sticker has a clean, uniform black outline for a die-cut sticker effect. Each sticker shows the full-body character with a different emotion and action, inspired by modern work-life and internet memes (e.g., exhausted, facepalming, mind-blown, love-struck, side-eye). The character is never cropped and the composition is clean. Absolutely no text, letters, or words.
+
+  - cmd: "表情包2"
+    name: "表情包2"
+    desc: "Q版表情包-经典基础"
+    prompt: |
+      Create a 3x3 grid sticker sheet of the character from the reference image, featuring nine unique 1:1 square stickers on a plain white background. The art style is a unified chibi (Q-version) Ghibli-like cartoon style with vibrant colors. Each sticker has a clean, uniform black outline for a die-cut sticker effect. Each sticker shows the full-body character and is not cropped. The composition is clean, and there is absolutely no text, letters, or words.
+
+      The nine stickers must depict the following specific emotions and actions, one for each sticker:
+      1. Smiling gently
+      2. Laughing out loud
+      3. Crying with big tears
+      4. Angry with puffed cheeks
+      5. Shocked with jaw dropped
+      6. Waving hello
+      7. Giving a thumbs up
+      8. Sleepy and saying good night
+      9. Thinking with chin rest
+
+  - cmd: "表情包3"
+    name: "表情包3"
+    desc: "Q版表情包-可爱互动"
+    prompt: |
+      Create a 3x3 grid sticker sheet of the character from the reference image, featuring nine unique 1:1 square stickers on a plain white background. The art style is a unified chibi (Q-version) Ghibli-like cartoon style with vibrant colors. Each sticker has a clean, uniform black outline for a die-cut sticker effect. Each sticker shows the full-body character and is not cropped. The composition is clean, and there is absolutely no text, letters, or words.
+
+      The nine stickers must depict the following specific emotions and actions, one for each sticker:
+      1. Shy and blushing
+      2. Admiring with starry eyes
+      3. Grieved and about to cry
+      4. Confused with a head tilt
+      5. Pleading or begging
+      6. Happy with a finger heart
+      7. Making an OK sign
+      8. Saluting to say 'roger that'
+      9. Relaxing while sipping tea
+
+  - cmd: "表情包4"
+    name: "表情包4"
+    desc: "Q版表情包-网络热梗"
+    prompt: |
+      Create a 3x3 grid sticker sheet of the character from the reference image, featuring nine unique 1:1 square stickers on a plain white background. The art style is a unified chibi (Q-version) Ghibli-like cartoon style with vibrant colors. Each sticker has a clean, uniform black outline for a die-cut sticker effect. Each sticker shows the full-body character and is not cropped. The composition is clean, and there is absolutely no text, letters, or words.
+
+      The nine stickers must depict the following specific emotions and actions, one for each sticker:
+      1. Disgusted or disdainful side-eye
+      2. Facepalming in disbelief
+      3. Eating melon/popcorn while watching drama
+      4. Peeking from a corner to observe secretly
+      5. Lying flat / giving up
+      6. Exhausted with soul leaving body
+      7. Hungry and drooling
+      8. Having a 'Eureka!' moment with a lightbulb
+      9. Slacking off at work (Moyu)
+
+  - cmd: "互动表情包"
+    name: "互动表情包"
+    desc: "九宫格表情包，两个Q版小人互动"
+    prompt: |
+      Create a 3x3 grid sticker sheet featuring two distinct characters interacting with each other, based on the two reference images provided. Let's call them Character A (from the first image) and Character B (from the second image).
+
+      **Crucial Instruction:** Each of the nine stickers must contain **both** Character A and Character B. The AI must maintain the visual identity of each character consistently across all nine stickers.
+
+      **Art Style:** The art style is a unified chibi (Q-version) Ghibli-like cartoon style with vibrant colors, on a plain white background. Each sticker has a clean, uniform black outline for a die-cut sticker effect. Both characters should be full-body and not cropped.
+
+      **The nine stickers must depict the following specific interactions, one for each sticker:**
+      1. **Happy Hug:** Character A and Character B sharing a warm, happy hug.
+      2. **Headpat Comfort:** Character A gently comforts a sad-looking Character B with a headpat.
+      3. **Celebratory High Five:** Character A and Character B giving each other an energetic high five.
+      4. **Feeding a Snack:** Character A is playfully feeding a small snack (like a pocky stick or a small cake) to Character B.
+      5. **Angry Stare-off:** Both characters are sitting back-to-back on the ground, angry, with puffed cheeks and refusing to look at each other.
+      6. **Playful Chase:** Character A is playfully chasing Character B, who is looking back with a mischievous smile.
+      7. **Pinching Cheeks:** Character A is gently pinching Character B's soft chibi cheeks, and Character B looks slightly annoyed but cute.
+      8. **Back to Back:** Character A and Character B are sitting on the ground resting, back-to-back, with a calm and trusting expression.
+      9. **Shyly Giving a Gift:** Character A is shyly presenting a small gift (like a flower or a small box) to Character B, who looks surprised and is blushing.
+
+      **Strict Constraints:** Absolutely no text, letters, or words.
+
+  - cmd: "bjd"
+    name: "BJD娃娃"
+    desc: "球型关节人偶风格"
+    prompt: |
+      A hyperrealistic, photorealistic photograph of a high-quality, custom-made Ball-Jointed Doll (BJD), meticulously crafted in a specific, consistent anime-inspired aesthetic to resemble the character from the provided input image. The final image must look like a high-quality photo taken by a BJD enthusiast.
+
+      Core Instructions (Strictly follow):
+      1. Style Imposition (Highest Priority): You MUST completely discard and ignore the art style, proportions, and material rendering of the input reference image. Render the final BJD SOLELY in the target anime BJD aesthetic defined below. Do not blend styles.
+      2. Character Likeness: The BJD must be an instantly recognizable anime-style representation of the character, fully adapted into the target BJD style. Preserve key identifying features but render them using the target style's materials and proportions.
+      3. Dynamic Posing & Composition: The BJD should be posed in a dynamic, lively, and cute manner, showcasing personality. Avoid stiff, static, front-facing standing poses. Pose should be independent of the source image. Generate a complete, full-body BJD.
+
+      Target Anime BJD Style Details (Strict Adherence Required):
+      - Features large, expressive anime-style glass or acrylic eyes.
+      - The nose and mouth are small, delicate, and highly stylized with minimal lip color.
+      - Crucial Proportion: The head-to-body proportion MUST be strictly 7 heads tall (1:6 body to head ratio), resulting in a standard, well-proportioned anime figure look.
+      - Hair Rendering (Critical Detail): The hair MUST be rendered as ultra-realistic, soft, fine, flowing synthetic wig fibers. Emphasize individual strands, natural light reflections, slight flyaways, and the delicate texture of high-end doll hair. It must look convincingly like a real wig, NOT plastic.
+      - Made of smooth matte resin.
+      - Visible ball joints are present.
+      - Wears a detailed, scaled fabric outfit.
+
+      Photography Context & Scene:
+      - Captured with a DSLR camera, featuring natural, soft lighting and a shallow depth of field.
+      - Posed within a picturesque real-world or miniature setting.
+      - The mood is a lovingly taken, high-quality snapshot.
+
+  - cmd: "情头化"
+    name: "情头化"
+    desc: "生成配对情侣头像"
+    prompt: |
+      基于原图【卡通/写实/手绘/像素（替换为原头像画风）】风格，保留原有背景元素与色彩基调，生成对应情侣头像。新角色性别适配，神态、动作与原图呼应（如对视、牵手、同姿势反向），笔触、细节质感与原图完全一致，整体氛围契合，无风格割裂，确保两款头像视觉上高度配对，符合情侣头像的互动感与统一性。
+
+  - cmd: "土下座"
+    name: "土下座"
+    desc: "跪姿展示角色服装分解（需banana pro模型）"
+    prompt: |
+      A professional e-commerce fashion showcase, presented as a single, unified scene viewed from a high angle. In the upper portion of the frame (background), the character, rendered in the crisp anime art style of the input image, performs a graceful and humble kneeling pose (Seiza). Her body is slightly leaned forward, and her head is bowed down, with her gaze directed downwards. Her hands are resting elegantly on her thighs. She is wearing only the imagined delicate lace set.
+
+      In the lower portion of the frame (foreground), laid out on the floor directly in front of her, is the collection of deconstructed clothing. Crucially, these items are presented with a distinct sense of three-dimensionality and volumetric form, NOT as flat graphics. Each piece is meticulously shaded with highlights and shadows to show its natural folds and contours, casting soft, believable shadows on the minimalist white studio floor.
+
+      The main content is the clothing and accessories from the input image, perfectly deconstructed. It is mandatory that all these deconstructed items are sourced exclusively and accurately from the provided picture. Alongside the original outfit, the display also includes the imagined delicate lace set worn by the character. All items are clearly annotated with minimalist text labels.
+
+      Overall style: Masterpiece, high-resolution, clean illustration style, directly emulating the aesthetic of the input image. The entire scene is unified under a single, bright commercial light source within a minimalist white studio setting.
+
+  - cmd: "ciallo"
+    name: "Ciallo"
+    desc: "经典Ciallo比耶眨眼姿势（需banana pro模型）"
+    prompt: |
+      [重要指令：这是一次"图生图"任务]
+
+      请严格按照以下要求修改所提供的原始图片：
+
+      1. 【核心目标】：
+      将图中角色的姿势和表情，修改为经典的 (∠・ω< )⌒☆ (Ciallo) 风格。
+
+      2. 【关键约束 (必须遵守)】：
+      * **保留角色**：必须保持原始图片中角色的**面部特征、发型、服装样式和配色**不变。
+      * **保留风格**：必须保持原始图片的**艺术风格**（例如：动漫、写实、水彩等）。
+
+      3. 【姿势和表情 (替换为)】：
+      * **手部**：让角色的**右手**在头侧比一个"耶"（V字手势），并使"V"形的空缺**横向对准右眼**。
+      * **表情**：让角色的**左眼**（远离V字手的那只眼）**紧紧地眯起**（Wink），**右眼**（靠近V字手的那只眼）**保持睁开**。
+      * **嘴部**：使角色**张嘴带笑，露出开心、俏皮的笑容**。
+      * **身体**：让角色的头部和肩膀**向右侧微倾约30度**（肩膀以下的部分不要倾斜），但保持**面向镜头**。
+      * **其他**：左手自然下垂。
+
+      4. 【构图和比例 (替换为)】：
+      * **比例**：最终输出的图片比例必须是 **16:9**（横向）。
+      * **主体**：画面构图应调整为**"角色上半身"**，并使其**处于画面中心**。
+      * **补全**：如果调整比例或姿势导致图片出现空白（例如背景不够、肩膀被切），请**自动补全缺失的图像部分**，使其看起来自然、完整。
+
+      总结：请在保留角色身份和画风的前提下，将姿势、表情和构图完全替换为上述Ciallo的要求。
+
+  - cmd: "堕落历程"
+    name: "堕落历程"
+    desc: "角色服装渐变堕落历程图（需banana pro模型）"
+    prompt: |
+      根据此张角色图设计概念展示图生成图片比例应该为：横图2K16:9
+      每个阶段需要用不同颜色做背景，每个阶段都是角色一个节点的表示
+      最左侧的将是主角和其原本状态，最右侧则是最彻底堕落的状态，从左到右，服装露出度和情趣度越来越高，角色会根据服装和堕落程度不同做出不同的动作和反应。全程不改变发色
+      从左到右，角色会逐渐堕落（bimbofication）- 出于个人喜好，中间应该有职业装，最后一幕前应该采用各类情趣服装，最后几幕则是兔女郎或星条旗比基尼类似的风格。
+      使用中文解析该角色的色色之处，并用大量的中文文字解释
+      风格应当采用ANIME+lineart
+      应当遵循以下流程：
+      Step-1 确保理解堕落的核心要素
+      Step-2 设计合适的服装
+      Step-3 设计合适的动作和神态
+      Step-4 进行符合图片分区内容格式的图片生成
+
+  - cmd: "24表情包"
+    name: "24表情包"
+    desc: "4x6布局LINE风格表情包（需banana pro模型）"
+    prompt: |
+      为我生成图中角色的绘制Q版的，LINE风格的半身像表情包，注意头饰要正确
+      彩色手绘风格，使用4x6布局，涵盖各种各样的常用聊天语句，或是一些有关的娱乐meme
+      其他需求：不要原图复制。所有标注为手写简体中文。生成的图片需为4K分辨率16:9
+
+  - cmd: "表情包s"
+    name: "表情包特殊版"
+    desc: "Telegram风格6x4布局表情包"
+    prompt: |
+      为图中的主角绘制Q版的，Telegram风格的半身像表情包，注意人物特征要正确
+      彩色手绘风格，使用6行4列布局，涵盖各种各样的有趣聊天语句，或是一些有关的娱乐meme。
+      其他需求：不要原图复制。所有标注为手写简体中文。

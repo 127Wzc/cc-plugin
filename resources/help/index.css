@@ -1,0 +1,16 @@
+/* 帮助页特殊样式 */
+body {
+    width: 580px;
+}
+
+.container {
+    width: 580px;
+}
+
+.head-box {
+    padding: 15px 20px;
+}
+
+.head-box .title {
+    font-size: 24px;
+}

@@ -1,0 +1,16 @@
+/* 列表页特殊样式 */
+body {
+    width: 520px;
+}
+
+.container {
+    width: 520px;
+}
+
+.head-box {
+    padding: 12px 15px;
+}
+
+.head-box .title {
+    font-size: 20px;
+}

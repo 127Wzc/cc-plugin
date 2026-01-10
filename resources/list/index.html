@@ -1,0 +1,53 @@
+{{extend defaultLayout}}
+
+{{block 'css'}}
+<link rel="stylesheet" type="text/css" href="{{_res_path}}/list/index.css" />
+{{/block}}
+
+{{block 'main'}}
+<div class="head-box">
+    <div class="title">{{title}}</div>
+    {{if subTitle}}
+    <div class="sub-title">{{subTitle}}</div>
+    {{/if}}
+</div>
+
+{{if stats}}
+<div class="stats-row">
+    {{each stats stat}}
+    <div class="stat-item">
+        <div class="value">{{stat.value}}</div>
+        <div class="label">{{stat.label}}</div>
+    </div>
+    {{/each}}
+</div>
+{{/if}}
+
+<div class="cont-box">
+    {{if listTitle}}
+    <div class="cont-title">{{listTitle}}</div>
+    {{/if}}
+    <div class="list-grid">
+        {{each list item idx}}
+        <div class="list-item">
+            <div class="index">{{idx + 1}}</div>
+            <div class="content">
+                <div class="title">{{item.title}}</div>
+                {{if item.desc}}
+                <div class="desc">{{item.desc}}</div>
+                {{/if}}
+            </div>
+            {{if item.status}}
+            <div class="status {{item.statusClass || ''}}">{{item.status}}</div>
+            {{/if}}
+        </div>
+        {{/each}}
+    </div>
+</div>
+
+{{if footer}}
+<div class="tip-box">
+    {{@footer}}
+</div>
+{{/if}}
+{{/block}}

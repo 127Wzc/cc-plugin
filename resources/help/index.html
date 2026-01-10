@@ -1,0 +1,35 @@
+{{extend defaultLayout}}
+
+{{block 'css'}}
+<link rel="stylesheet" type="text/css" href="{{_res_path}}/help/index.css" />
+{{/block}}
+
+{{block 'main'}}
+<div class="head-box">
+    <div class="title">🍌 {{title || "大香蕉帮助"}}</div>
+    <div class="sub-title">{{subTitle || "cc-plugin 图片生成插件"}}</div>
+</div>
+
+{{each helpGroup group}}
+<div class="cont-box">
+    <div class="cont-title">{{group.group}}</div>
+    <div class="help-table">
+        {{each group.list item}}
+        <div class="td">
+            <span class="help-title">{{item.title}}</span>
+            <span class="help-desc">{{item.desc}}</span>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/each}}
+
+{{if tips}}
+<div class="tip-box">
+    <div class="tip-title">💡 使用技巧</div>
+    {{each tips tip}}
+    <div>• {{tip}}</div>
+    {{/each}}
+</div>
+{{/if}}
+{{/block}}
