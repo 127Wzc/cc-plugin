@@ -334,7 +334,8 @@ export class banana extends plugin {
                         image_url: { url: base64Url }
                     })
                 })
-                logger.debug(`[Banana] 成功转换 ${base64Images.length} 张图片为base64`)
+                const totalSize = base64Images.reduce((sum, img) => sum + img.length, 0)
+                logger.debug(`[Banana] 成功转换 ${base64Images.length} 张图片为base64, 总大小: ${(totalSize / 1024).toFixed(1)}KB`)
             } catch (error) {
                 logger.debug(`[Banana] 图片转换失败: ${error.message}`)
                 await e.reply(`⚠️ 图片处理失败: ${error.message}\n将继续进行文本生成...`)

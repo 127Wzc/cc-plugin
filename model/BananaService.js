@@ -61,17 +61,28 @@ class BananaService {
                 '-i', 'pipe:0',
                 '-vframes', '1',
                 '-f', 'image2pipe',
-                '-vcodec', 'png',
+                '-vcodec', 'mjpeg',    // 改用 JPEG (体积更小)
+                '-q:v', '3',           // JPEG 质量 (1-31, 越小质量越好)
                 'pipe:1'
             ])
 
             const cleanup = () => {
-                if (timeoutId) clearTimeout(timeoutId)
+                if (timeoutId) {
+                    clearTimeout(timeoutId)
+                    timeoutId = null
+                }
+                // 安全销毁流，避免对已关闭的流操作
                 try {
-                    ffmpeg.stdin.destroy()
-                    ffmpeg.stdout.destroy()
-                    ffmpeg.stderr.destroy()
-                    if (!ffmpeg.killed) ffmpeg.kill('SIGKILL')
+                    if (ffmpeg.stdin && !ffmpeg.stdin.destroyed) ffmpeg.stdin.destroy()
+                } catch { }
+                try {
+                    if (ffmpeg.stdout && !ffmpeg.stdout.destroyed) ffmpeg.stdout.destroy()
+                } catch { }
+                try {
+                    if (ffmpeg.stderr && !ffmpeg.stderr.destroyed) ffmpeg.stderr.destroy()
+                } catch { }
+                try {
+                    if (!ffmpeg.killed) ffmpeg.kill('SIGTERM')
                 } catch { }
             }
 
@@ -467,7 +478,7 @@ class BananaService {
             if (await this.checkFfmpeg()) {
                 try {
                     buffer = await this.extractGifFirstFrame(buffer)
-                    mimeType = 'image/png'
+                    mimeType = 'image/jpeg'
                     logger?.debug?.('[Banana] GIF 首帧已提取')
                 } catch (err) {
                     logger?.warn?.(`[Banana] 跳过 GIF 图片: 首帧提取失败 - ${err.message}`)
