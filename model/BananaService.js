@@ -2,6 +2,10 @@ import fs from 'fs'
 import path from 'path'
 import https from 'https'
 import http from 'http'
+import { spawn, exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
 import Config from '../components/Cfg.js'
 
 const _path = process.cwd()
@@ -17,6 +21,64 @@ const KEYS_FILE = path.join(DATA_DIR, 'keys.json')
 class BananaService {
     constructor() {
         this._keysConfig = null
+        this._ffmpegAvailable = null  // 缓存 ffmpeg 可用性
+    }
+
+    /**
+     * 检测 ffmpeg 是否可用（首次调用时检测，结果缓存）
+     * @returns {Promise<boolean>}
+     */
+    async checkFfmpeg() {
+        if (this._ffmpegAvailable !== null) {
+            return this._ffmpegAvailable
+        }
+
+        try {
+            await execAsync('ffmpeg -version', { timeout: 5000 })
+            this._ffmpegAvailable = true
+            logger?.info?.('[Banana] ffmpeg 检测成功，已启用 GIF 首帧提取')
+        } catch {
+            this._ffmpegAvailable = false
+            logger?.warn?.('[Banana] 未检测到 ffmpeg，GIF 图片将不被支持')
+        }
+
+        return this._ffmpegAvailable
+    }
+
+    /**
+     * 使用 ffmpeg 管道提取 GIF 首帧
+     * @param {Buffer} gifBuffer - GIF 图片 buffer
+     * @returns {Promise<Buffer>} PNG 格式的首帧
+     */
+    extractGifFirstFrame(gifBuffer) {
+        return new Promise((resolve, reject) => {
+            const chunks = []
+
+            const ffmpeg = spawn('ffmpeg', [
+                '-f', 'gif',           // 输入格式
+                '-i', 'pipe:0',        // 从 stdin 读取
+                '-vframes', '1',       // 只取一帧
+                '-f', 'image2pipe',    // 输出为图片管道
+                '-vcodec', 'png',      // 输出编码
+                'pipe:1'               // 输出到 stdout
+            ], { timeout: 10000 })
+
+            ffmpeg.stdout.on('data', chunk => chunks.push(chunk))
+            ffmpeg.stderr.on('data', () => { })  // 忽略 ffmpeg 日志
+
+            ffmpeg.on('close', code => {
+                if (code === 0 && chunks.length > 0) {
+                    resolve(Buffer.concat(chunks))
+                } else {
+                    reject(new Error(`ffmpeg 提取首帧失败，退出码: ${code}`))
+                }
+            })
+
+            ffmpeg.on('error', err => reject(new Error(`ffmpeg 执行失败: ${err.message}`)))
+
+            ffmpeg.stdin.write(gifBuffer)
+            ffmpeg.stdin.end()
+        })
     }
 
     /**
@@ -344,7 +406,18 @@ class BananaService {
     }
 
     /**
+     * 检测 Buffer 是否为 GIF (通过魔数判断)
+     * GIF 文件魔数: 47 49 46 38 ("GIF8")
+     */
+    isGifBuffer(buffer) {
+        return buffer.length >= 4 &&
+            buffer[0] === 0x47 && buffer[1] === 0x49 &&
+            buffer[2] === 0x46 && buffer[3] === 0x38
+    }
+
+    /**
      * 下载图片并转换为 base64
+     * 如果是 GIF 且系统有 ffmpeg，则提取首帧
      */
     async downloadImageToBase64(imageUrl) {
         const response = await this.httpRequest(imageUrl, {
@@ -353,28 +426,44 @@ class BananaService {
         })
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+            logger?.error?.(`[Banana] 图片下载失败: HTTP ${response.status} - ${imageUrl}`)
+            return null
         }
 
-        const buffer = await response.arrayBuffer()
-        const base64 = Buffer.from(buffer).toString('base64')
-
-        // 检测图片类型
+        let buffer = Buffer.from(await response.arrayBuffer())
         let mimeType = 'image/jpeg'
-        const contentType = response.headers['content-type']
-        if (contentType && contentType.startsWith('image/')) {
-            mimeType = contentType.split(';')[0]
+
+        // 检测是否为 GIF
+        if (this.isGifBuffer(buffer)) {
+            if (await this.checkFfmpeg()) {
+                try {
+                    buffer = await this.extractGifFirstFrame(buffer)
+                    mimeType = 'image/png'
+                    logger?.debug?.('[Banana] GIF 首帧已提取')
+                } catch (err) {
+                    logger?.warn?.(`[Banana] 跳过 GIF 图片: 首帧提取失败 - ${err.message}`)
+                    return null
+                }
+            } else {
+                logger?.debug?.('[Banana] 跳过 GIF 图片: 需要安装 ffmpeg')
+                return null
+            }
         } else {
-            const ext = imageUrl.split('.').pop()?.toLowerCase()
-            switch (ext) {
-                case 'png': mimeType = 'image/png'; break
-                case 'gif': mimeType = 'image/gif'; break
-                case 'webp': mimeType = 'image/webp'; break
-                default: mimeType = 'image/jpeg'; break
+            // 非 GIF: 检测 MIME 类型
+            const contentType = response.headers['content-type']
+            if (contentType && contentType.startsWith('image/')) {
+                mimeType = contentType.split(';')[0]
+            } else {
+                const ext = imageUrl.split('.').pop()?.toLowerCase()
+                switch (ext) {
+                    case 'png': mimeType = 'image/png'; break
+                    case 'webp': mimeType = 'image/webp'; break
+                    default: mimeType = 'image/jpeg'; break
+                }
             }
         }
 
-        return `data:${mimeType};base64,${base64}`
+        return `data:${mimeType};base64,${buffer.toString('base64')}`
     }
 
     /**
@@ -387,7 +476,9 @@ class BananaService {
         for (let i = 0; i < imageUrls.length; i++) {
             try {
                 const base64Url = await this.downloadImageToBase64(imageUrls[i])
-                results.push(base64Url)
+                if (base64Url) {  // 过滤 null (如被跳过的 GIF)
+                    results.push(base64Url)
+                }
             } catch (error) {
                 errors.push(`图片${i + 1}: ${error.message}`)
                 logger.debug(`[Banana] 跳过无效图片: ${imageUrls[i]}`)
@@ -395,7 +486,7 @@ class BananaService {
         }
 
         if (results.length === 0 && errors.length > 0) {
-            throw new Error(`所有图片转换失败:\n${errors.join('\n')}`)
+            logger?.error?.(`[Banana] 所有图片转换失败: ${errors.join(', ')}`)
         }
 
         return results
