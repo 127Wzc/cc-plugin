@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import https from 'https'
 import http from 'http'
-import { spawn, exec } from 'child_process'
+import { exec } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
@@ -46,79 +46,38 @@ class BananaService {
     }
 
     /**
-     * 使用 ffmpeg 管道提取 GIF 首帧
+     * 使用 ffmpeg 提取 GIF 首帧 (临时文件方式，更稳定)
      * @param {Buffer} gifBuffer - GIF 图片 buffer
-     * @returns {Promise<Buffer>} PNG 格式的首帧
+     * @returns {Promise<Buffer>} JPEG 格式的首帧
      */
-    extractGifFirstFrame(gifBuffer) {
-        return new Promise((resolve, reject) => {
-            const chunks = []
-            let finished = false
-            let timeoutId = null
+    async extractGifFirstFrame(gifBuffer) {
+        const tmpDir = path.join(DATA_DIR, 'temp')
+        if (!fs.existsSync(tmpDir)) {
+            fs.mkdirSync(tmpDir, { recursive: true })
+        }
 
-            const ffmpeg = spawn('ffmpeg', [
-                '-f', 'gif',
-                '-i', 'pipe:0',
-                '-vframes', '1',
-                '-f', 'image2pipe',
-                '-vcodec', 'mjpeg',    // 改用 JPEG (体积更小)
-                '-q:v', '3',           // JPEG 质量 (1-31, 越小质量越好)
-                'pipe:1'
-            ])
+        const timestamp = Date.now()
+        const inputPath = path.join(tmpDir, `gif_input_${timestamp}.gif`)
+        const outputPath = path.join(tmpDir, `gif_output_${timestamp}.jpg`)
 
-            const cleanup = () => {
-                if (timeoutId) {
-                    clearTimeout(timeoutId)
-                    timeoutId = null
-                }
-                // 安全销毁流，避免对已关闭的流操作
-                try {
-                    if (ffmpeg.stdin && !ffmpeg.stdin.destroyed) ffmpeg.stdin.destroy()
-                } catch { }
-                try {
-                    if (ffmpeg.stdout && !ffmpeg.stdout.destroyed) ffmpeg.stdout.destroy()
-                } catch { }
-                try {
-                    if (ffmpeg.stderr && !ffmpeg.stderr.destroyed) ffmpeg.stderr.destroy()
-                } catch { }
-                try {
-                    if (!ffmpeg.killed) ffmpeg.kill('SIGTERM')
-                } catch { }
-            }
+        try {
+            // 写入临时 GIF 文件
+            fs.writeFileSync(inputPath, gifBuffer)
 
-            const finish = (err, result) => {
-                if (finished) return
-                finished = true
-                cleanup()
-                err ? reject(err) : resolve(result)
-            }
+            // 使用 execAsync 执行 ffmpeg
+            await execAsync(
+                `ffmpeg -y -i "${inputPath}" -vframes 1 -q:v 3 "${outputPath}"`,
+                { timeout: 10000 }
+            )
 
-            // 10秒超时
-            timeoutId = setTimeout(() => {
-                finish(new Error('ffmpeg 处理超时'))
-            }, 10000)
-
-            ffmpeg.stdout.on('data', chunk => chunks.push(chunk))
-            ffmpeg.stderr.on('data', () => { })
-
-            ffmpeg.on('close', code => {
-                if (code === 0 && chunks.length > 0) {
-                    finish(null, Buffer.concat(chunks))
-                } else {
-                    finish(new Error(`ffmpeg 退出码: ${code}`))
-                }
-            })
-
-            ffmpeg.on('error', err => finish(new Error(`ffmpeg 错误: ${err.message}`)))
-
-            // 写入数据
-            try {
-                ffmpeg.stdin.write(gifBuffer)
-                ffmpeg.stdin.end()
-            } catch (err) {
-                finish(new Error(`写入 ffmpeg 失败: ${err.message}`))
-            }
-        })
+            // 读取输出的 JPEG
+            const result = fs.readFileSync(outputPath)
+            return result
+        } finally {
+            // 清理临时文件
+            try { fs.unlinkSync(inputPath) } catch { }
+            try { fs.unlinkSync(outputPath) } catch { }
+        }
     }
 
     /**
