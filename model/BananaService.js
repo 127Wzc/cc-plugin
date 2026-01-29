@@ -53,31 +53,60 @@ class BananaService {
     extractGifFirstFrame(gifBuffer) {
         return new Promise((resolve, reject) => {
             const chunks = []
+            let finished = false
+            let timeoutId = null
 
             const ffmpeg = spawn('ffmpeg', [
-                '-f', 'gif',           // 输入格式
-                '-i', 'pipe:0',        // 从 stdin 读取
-                '-vframes', '1',       // 只取一帧
-                '-f', 'image2pipe',    // 输出为图片管道
-                '-vcodec', 'png',      // 输出编码
-                'pipe:1'               // 输出到 stdout
-            ], { timeout: 10000 })
+                '-f', 'gif',
+                '-i', 'pipe:0',
+                '-vframes', '1',
+                '-f', 'image2pipe',
+                '-vcodec', 'png',
+                'pipe:1'
+            ])
+
+            const cleanup = () => {
+                if (timeoutId) clearTimeout(timeoutId)
+                try {
+                    ffmpeg.stdin.destroy()
+                    ffmpeg.stdout.destroy()
+                    ffmpeg.stderr.destroy()
+                    if (!ffmpeg.killed) ffmpeg.kill('SIGKILL')
+                } catch { }
+            }
+
+            const finish = (err, result) => {
+                if (finished) return
+                finished = true
+                cleanup()
+                err ? reject(err) : resolve(result)
+            }
+
+            // 10秒超时
+            timeoutId = setTimeout(() => {
+                finish(new Error('ffmpeg 处理超时'))
+            }, 10000)
 
             ffmpeg.stdout.on('data', chunk => chunks.push(chunk))
-            ffmpeg.stderr.on('data', () => { })  // 忽略 ffmpeg 日志
+            ffmpeg.stderr.on('data', () => { })
 
             ffmpeg.on('close', code => {
                 if (code === 0 && chunks.length > 0) {
-                    resolve(Buffer.concat(chunks))
+                    finish(null, Buffer.concat(chunks))
                 } else {
-                    reject(new Error(`ffmpeg 提取首帧失败，退出码: ${code}`))
+                    finish(new Error(`ffmpeg 退出码: ${code}`))
                 }
             })
 
-            ffmpeg.on('error', err => reject(new Error(`ffmpeg 执行失败: ${err.message}`)))
+            ffmpeg.on('error', err => finish(new Error(`ffmpeg 错误: ${err.message}`)))
 
-            ffmpeg.stdin.write(gifBuffer)
-            ffmpeg.stdin.end()
+            // 写入数据
+            try {
+                ffmpeg.stdin.write(gifBuffer)
+                ffmpeg.stdin.end()
+            } catch (err) {
+                finish(new Error(`写入 ffmpeg 失败: ${err.message}`))
+            }
         })
     }
 
