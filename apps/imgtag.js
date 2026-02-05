@@ -1,9 +1,16 @@
 import ImgTagService from '../model/ImgTagService.js'
-import Config from '../components/Cfg.js'
 import common from '../../../lib/common/common.js'
 
 // 存储待回调的任务 {taskId: {md5, resolve, userId, groupId, botId, sourceMessageId}}
 const pendingCallbacks = new Map()
+
+function needKeyTip() {
+    return (
+        `🔑 需要先配置你的 ImgTag 个人 api_key 才能使用该功能\n` +
+        `- 自己设置：#cc图床设置key <api_key>\n` +
+        `- 或让管理员在 Guoba 面板为你分配（ImgTag.user_keys）`
+    )
+}
 
 // 标记路由是否已注册
 let callbackRouteRegistered = false
@@ -169,6 +176,18 @@ export class ImgTag extends plugin {
             priority: 100,
             rule: [
                 {
+                    reg: '^#?cc图库设置key\\s+(.+)$',
+                    fnc: 'setUserKey'
+                },
+                {
+                    reg: '^#?cc图库删除key$',
+                    fnc: 'deleteUserKey'
+                },
+                {
+                    reg: '^#?cc图库我的状态$',
+                    fnc: 'myStatus'
+                },
+                {
                     reg: '^#?(cc)?(偷图|存图)(.*)$',
                     fnc: 'stealImage'
                 },
@@ -189,15 +208,64 @@ export class ImgTag extends plugin {
         // 路由已在模块顶层注册，无需在构造函数中重复调用
     }
 
+    async setUserKey(e) {
+        const key = (e.msg.match(/^#?cc图床设置key\s+(.+)$/)?.[1] || '').trim()
+        if (!key) {
+            await e.reply('❌ 请提供 api_key\n用法：#cc图床设置key <api_key>', true)
+            return true
+        }
+
+        try {
+            ImgTagService.setUserApiKey(e.user_id, key)
+            const allowed = ImgTagService.isAllowedUser(e.user_id)
+            const hint = allowed ? '✅ 已授权，可直接使用 ImgTag 指令。' : '⚠️ 当前尚未授权，联系管理员开通后生效。'
+            await e.reply(`✅ 已保存你的个人 api_key（不会回显明文）\n${hint}`, true)
+        } catch (err) {
+            await e.reply(`❌ 保存失败: ${err.message}`, true)
+        }
+        return true
+    }
+
+    async deleteUserKey(e) {
+        try {
+            ImgTagService.deleteUserApiKey(e.user_id)
+            await e.reply('✅ 已删除你的个人 api_key', true)
+        } catch (err) {
+            await e.reply(`❌ 操作失败: ${err.message}`, true)
+        }
+        return true
+    }
+
+    async myStatus(e) {
+        const allowed = ImgTagService.isAllowedUser(e.user_id)
+        const src = ImgTagService.getKeySource(e.user_id)
+        const srcText =
+            src === 'guoba'
+                ? 'Guoba分配'
+                : src === 'self'
+                    ? '自助配置'
+                    : src === 'global'
+                        ? '全局key(主人)'
+                        : '未配置'
+        const hasKey = !!ImgTagService.getApiKeyForUser(e.user_id)
+
+        let msg = `📌 ImgTag 个人状态\n`
+        msg += `- 授权: ${allowed ? '✅ 已授权' : '❌ 未授权'}\n`
+        msg += `- api_key: ${hasKey ? '✅ 已配置' : '❌ 未配置'}（${srcText}）`
+        if (!hasKey) {
+            msg += `\n\n${needKeyTip()}`
+        }
+        await e.reply(msg, true)
+        return true
+    }
+
     /**
      * 偷图 - 保存引用消息中的图片
      * 指令: #偷图 [标签1] [标签2] ...
      */
     async stealImage(e) {
-        // 权限检查: 仅主人可用
-        if (!Config.masterQQ.includes(e.user_id)) {
-            return false
-        }
+        // 未授权：无感不响应（并吞掉指令，避免被其它插件误触发）
+        if (!ImgTagService.isAllowedUser(e.user_id)) return true
 
         // 获取图片数据列表 [{url, mfaceSummary}]
         let imgData = []
@@ -277,9 +345,13 @@ export class ImgTag extends plugin {
 
                 // 2. 上传到云端 (如果启用)
                 let cloudResult = null
-                if (config.auto_sync && config.api_url && config.api_key) {
+                if (config.auto_sync && config.api_url) {
                     try {
-                        cloudResult = await ImgTagService.addImage(imgInfo.url, imageTags, '', callbackUrl)
+                        if (!ImgTagService.getApiKeyForUser(e.user_id)) {
+                            throw new Error('未配置个人 api_key')
+                        }
+
+                        cloudResult = await ImgTagService.addImageForUser(e.user_id, imgInfo.url, imageTags, '', callbackUrl)
                         // 更新本地索引
                         ImgTagService.updateIndex(localResult.md5, {
                             synced: true,
@@ -334,6 +406,12 @@ export class ImgTag extends plugin {
         if (baseTags.length > 0) {
             replyMsg += `\n🏷️ 标签: ${baseTags.join(', ')}`
         }
+        if (config.auto_sync && syncedCount === 0) {
+            replyMsg += `\n☁️ 云端同步: 已跳过（未配置个人 key 或上传失败）`
+        }
+        if (config.auto_sync && !ImgTagService.getApiKeyForUser(e.user_id)) {
+            replyMsg += `\n${needKeyTip()}`
+        }
 
         // 显示图片外显信息（如果有）
         const mfaceNames = results.filter(r => r.mfaceName).map(r => r.mfaceName)
@@ -364,8 +442,8 @@ export class ImgTag extends plugin {
 
         // 检查配置
         const config = ImgTagService.config
-        if (!config.api_url || !config.api_key) {
-            e.reply('❌ 请先配置 ImgTag API 地址和密钥', true)
+        if (!config.api_url) {
+            e.reply('❌ 请先配置 ImgTag API 地址', true)
             return true
         }
 
@@ -374,7 +452,7 @@ export class ImgTag extends plugin {
             const tags = keyword.includes(' ') ? keyword.split(/\s+/) : []
             const searchKeyword = tags.length > 0 ? '' : keyword
 
-            const result = await ImgTagService.searchImages(searchKeyword, tags, 10)
+            const result = await ImgTagService.searchImagesPublic(searchKeyword, tags, 10)
 
             if (!result.images || result.images.length === 0) {
                 e.reply('🔍 未找到匹配的图片', true)
@@ -420,13 +498,13 @@ export class ImgTag extends plugin {
 
         // 检查配置
         const config = ImgTagService.config
-        if (!config.api_url || !config.api_key) {
-            e.reply('❌ 请先配置 ImgTag API 地址和密钥', true)
+        if (!config.api_url) {
+            e.reply('❌ 请先配置 ImgTag API 地址', true)
             return true
         }
 
         try {
-            const result = await ImgTagService.getRandomImages(tags, 1)
+            const result = await ImgTagService.getRandomImagesPublic(tags, 1)
 
             if (!result.images || result.images.length === 0) {
                 e.reply('🎲 没有找到图片' + (tags.length > 0 ? `（标签: ${tags.join(', ')}）` : ''), true)
@@ -463,6 +541,8 @@ export class ImgTag extends plugin {
      * 指令: #图库状态
      */
     async showStats(e) {
+        if (!ImgTagService.isAllowedUser(e.user_id)) return true
+
         try {
             const localStats = ImgTagService.getStats()
             const config = ImgTagService.config

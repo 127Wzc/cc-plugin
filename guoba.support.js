@@ -1,6 +1,8 @@
 import Config from './components/Cfg.js'
 import lodash from 'lodash'
 
+const MASKED_KEY_PLACEHOLDER = '******'
+
 // 支持锅巴
 export function supportGuoba() {
     return {
@@ -156,6 +158,64 @@ export function supportGuoba() {
                         placeholder: '输入关键词后按回车添加',
                         allowAdd: true,
                         allowDel: true
+                    }
+                },
+                {
+                    label: '权限与用户 Key',
+                    component: 'Divider'
+                },
+                {
+                    field: 'ImgTag.allowed_users',
+                    label: '授权用户 QQ',
+                    helpMessage: '允许使用 ImgTag 指令的 QQ 白名单',
+                    bottomHelpMessage: '未授权用户触发 ImgTag 指令会无感不响应',
+                    component: 'GTags',
+                    componentProps: {
+                        placeholder: '输入QQ号后按回车添加',
+                        allowAdd: true,
+                        allowDel: true
+                    }
+                },
+                {
+                    field: 'ImgTag.user_keys',
+                    label: '用户-APIKey 关联',
+                    helpMessage: '为指定 QQ 分配 ImgTag 个人 api_key（用于上传/搜图/随机图）',
+                    bottomHelpMessage: '出于安全考虑，已保存的 key 不会在面板回显；如需修改请重新输入覆盖。若未配置全局 api_key，#cc搜图/#cc随机图 将从这里随机/轮询选取一个 key 用于普通用户访问。',
+                    component: 'GSubForm',
+                    componentProps: {
+                        multiple: true,
+                        schemas: [
+                            {
+                                field: 'user_id',
+                                label: 'QQ号',
+                                component: 'Input',
+                                required: true,
+                                componentProps: {
+                                    placeholder: '123456'
+                                }
+                            },
+                            {
+                                field: 'api_key',
+                                label: 'api_key',
+                                component: 'InputPassword',
+                                componentProps: {
+                                    placeholder: '输入后保存（不回显）'
+                                }
+                            },
+                            {
+                                field: 'enabled',
+                                label: '启用',
+                                component: 'Switch'
+                            },
+                            {
+                                field: 'remark',
+                                label: '备注',
+                                component: 'Input',
+                                componentProps: {
+                                    placeholder: '可选'
+                                }
+                            }
+                        ]
                     }
                 },
 
@@ -325,8 +385,15 @@ export function supportGuoba() {
 
             // 获取配置数据
             getConfigData() {
+                const imgTag = lodash.cloneDeep(Config.getDefOrConfig('ImgTag'))
+                if (Array.isArray(imgTag.user_keys)) {
+                    imgTag.user_keys = imgTag.user_keys.map(row => ({
+                        ...row,
+                        api_key: row?.api_key ? MASKED_KEY_PLACEHOLDER : ''
+                    }))
+                }
                 return {
-                    ImgTag: Config.getDefOrConfig('ImgTag'),
+                    ImgTag: imgTag,
                     Banana: Config.getDefOrConfig('Banana'),
                     qqConfig: Config.getDefOrConfig('qqConfig')
                 }
@@ -341,7 +408,34 @@ export function supportGuoba() {
                     const fieldPath = parts.slice(1).join('.')  // api_url 或 ai.type
 
                     if (configName === 'ImgTag' || configName === 'qqConfig' || configName === 'Banana') {
-                        Config.modify(configName, fieldPath, value)
+                        if (configName === 'ImgTag' && fieldPath === 'user_keys') {
+                            const existing = Config.getConfig('ImgTag')?.user_keys || []
+                            const existingMap = new Map(existing.map(r => [String(r?.user_id), r]))
+
+                            const nextList = Array.isArray(value) ? value : []
+                            const mergedMap = new Map()
+                            for (const row of nextList) {
+                                const userId = String(row?.user_id || '').trim()
+                                if (!userId) continue
+
+                                const prev = existingMap.get(userId)
+                                let apiKey = row?.api_key
+                                if (apiKey === MASKED_KEY_PLACEHOLDER || apiKey === undefined || apiKey === null) {
+                                    apiKey = prev?.api_key || ''
+                                }
+
+                                mergedMap.set(userId, {
+                                    user_id: row?.user_id,
+                                    api_key: String(apiKey || '').trim(),
+                                    enabled: row?.enabled !== false,
+                                    remark: row?.remark || ''
+                                })
+                            }
+
+                            Config.modify('ImgTag', 'user_keys', Array.from(mergedMap.values()))
+                        } else {
+                            Config.modify(configName, fieldPath, value)
+                        }
                     }
                 }
                 return Result.ok({}, '保存成功~')

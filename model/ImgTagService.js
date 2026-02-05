@@ -6,6 +6,7 @@ import http from 'http'
 import Config from '../components/Cfg.js'
 
 const _path = process.cwd()
+const MASKED_KEY_PLACEHOLDER = '******'
 
 /**
  * ImgTag API 服务封装类
@@ -15,6 +16,8 @@ class ImgTagService {
     constructor() {
         this.indexFile = null
         this.index = null
+        this._userKeys = null
+        this._readKeyCursor = 0
     }
 
     /**
@@ -22,6 +25,167 @@ class ImgTagService {
      */
     get config() {
         return Config.getDefOrConfig('ImgTag')
+    }
+
+    /**
+     * 插件数据目录
+     */
+    get pluginDataDir() {
+        return path.join(_path, 'plugins', 'cc-plugin', 'data')
+    }
+
+    /**
+     * 用户自助 key 存储文件（不进 YAML/Guoba）
+     */
+    get userKeysPath() {
+        return path.join(this.pluginDataDir, 'imgtag_user_keys.json')
+    }
+
+    /**
+     * 获取用户配置（仅 config/ 目录，便于保留真实 key）
+     */
+    get rawConfig() {
+        try {
+            return Config.getConfig('ImgTag') || {}
+        } catch {
+            return {}
+        }
+    }
+
+    /**
+     * 判断是否为主人
+     */
+    isMaster(userId) {
+        const uid = String(userId || '')
+        return Array.isArray(Config.masterQQ) && Config.masterQQ.map(String).includes(uid)
+    }
+
+    /**
+     * 是否授权使用 ImgTag（主人/allowed_users/user_keys enabled）
+     */
+    isAllowedUser(userId) {
+        const uid = String(userId || '')
+        if (!uid) return false
+        if (this.isMaster(uid)) return true
+
+        const allowed = Array.isArray(this.config.allowed_users) ? this.config.allowed_users.map(String) : []
+        if (allowed.includes(uid)) return true
+
+        const userKeys = Array.isArray(this.config.user_keys) ? this.config.user_keys : []
+        return userKeys.some(item => String(item?.user_id) === uid && item?.enabled !== false)
+    }
+
+    // ==================== 用户 Key 管理 ====================
+
+    loadUserKeys() {
+        if (this._userKeys) return this._userKeys
+        try {
+            if (!fs.existsSync(this.pluginDataDir)) {
+                fs.mkdirSync(this.pluginDataDir, { recursive: true })
+            }
+            if (!fs.existsSync(this.userKeysPath)) {
+                this._userKeys = {}
+                fs.writeFileSync(this.userKeysPath, JSON.stringify(this._userKeys, null, 2), 'utf8')
+                return this._userKeys
+            }
+            const raw = fs.readFileSync(this.userKeysPath, 'utf8')
+            this._userKeys = raw ? JSON.parse(raw) : {}
+        } catch (err) {
+            logger.warn?.(`[ImgTag] 加载用户 key 失败: ${err?.message || err}`)
+            this._userKeys = {}
+        }
+        return this._userKeys
+    }
+
+    saveUserKeys() {
+        try {
+            if (!fs.existsSync(this.pluginDataDir)) {
+                fs.mkdirSync(this.pluginDataDir, { recursive: true })
+            }
+            fs.writeFileSync(this.userKeysPath, JSON.stringify(this._userKeys || {}, null, 2), 'utf8')
+        } catch (err) {
+            logger.warn?.(`[ImgTag] 保存用户 key 失败: ${err?.message || err}`)
+        }
+    }
+
+    setUserApiKey(userId, apiKey) {
+        const uid = String(userId || '')
+        if (!uid) throw new Error('无效的用户 ID')
+        const key = String(apiKey || '').trim()
+        if (!key || key === MASKED_KEY_PLACEHOLDER) throw new Error('无效的 api_key')
+        const data = this.loadUserKeys()
+        data[uid] = { api_key: key, updated_at: Date.now() }
+        this._userKeys = data
+        this.saveUserKeys()
+        return true
+    }
+
+    deleteUserApiKey(userId) {
+        const uid = String(userId || '')
+        if (!uid) throw new Error('无效的用户 ID')
+        const data = this.loadUserKeys()
+        if (data[uid]) {
+            delete data[uid]
+            this._userKeys = data
+            this.saveUserKeys()
+        }
+        return true
+    }
+
+    /**
+     * 从 Guoba/YAML 关联中取 key（优先）
+     */
+    getUserApiKeyFromConfig(userId) {
+        const uid = String(userId || '')
+        if (!uid) return null
+        const userKeys = Array.isArray(this.config.user_keys) ? this.config.user_keys : []
+        const row = userKeys.find(item => String(item?.user_id) === uid && item?.enabled !== false)
+        const key = String(row?.api_key || '').trim()
+        return key ? key : null
+    }
+
+    /**
+     * 从用户自助 JSON 中取 key（次级）
+     */
+    getUserApiKeyFromData(userId) {
+        const uid = String(userId || '')
+        if (!uid) return null
+        const data = this.loadUserKeys()
+        const key = String(data?.[uid]?.api_key || '').trim()
+        return key ? key : null
+    }
+
+    /**
+     * 获取用户 api_key：Guoba/YAML 优先，其次自助 JSON
+     */
+    getUserApiKey(userId) {
+        return this.getUserApiKeyFromConfig(userId) || this.getUserApiKeyFromData(userId)
+    }
+
+    /**
+     * 获取本次 API 请求应该使用的 key
+     * - 授权用户：必须有个人 key
+     * - 主人：若无个人 key，允许使用全局 key
+     */
+    getApiKeyForUser(userId) {
+        const uid = String(userId || '')
+        if (!uid) return null
+        const personal = this.getUserApiKey(uid)
+        if (personal) return personal
+        if (this.isMaster(uid)) {
+            const globalKey = String(this.config.api_key || '').trim()
+            return globalKey || null
+        }
+        return null
+    }
+
+    getKeySource(userId) {
+        const uid = String(userId || '')
+        if (!uid) return 'none'
+        if (this.getUserApiKeyFromConfig(uid)) return 'guoba'
+        if (this.getUserApiKeyFromData(uid)) return 'self'
+        if (this.isMaster(uid) && String(this.config.api_key || '').trim()) return 'global'
+        return 'none'
     }
 
     /**
@@ -207,7 +371,7 @@ class ImgTagService {
     // ==================== API 方法 ====================
 
     /**
-     * 通用 API 请求方法
+     * 通用 API 请求方法（全局 key）
      */
     async apiRequest(endpoint, method = 'GET', body = null) {
         const { api_url, api_key } = this.config
@@ -240,6 +404,80 @@ class ImgTagService {
     }
 
     /**
+     * 按用户 key 请求 API
+     */
+    async apiRequestForUser(userId, endpoint, method = 'GET', body = null) {
+        const api_url = String(this.config.api_url || '').trim()
+        if (!api_url) throw new Error('请先配置 api_url')
+
+        const api_key = this.getApiKeyForUser(userId)
+        if (!api_key) throw new Error('未配置个人 api_key，请先设置后再使用')
+
+        const url = `${api_url}/api/v1/external${endpoint}`
+        const headers = {
+            'api_key': api_key,
+            'Content-Type': 'application/json'
+        }
+        const options = { method, headers }
+        if (body) options.body = JSON.stringify(body)
+
+        const fetch = (await import('node-fetch')).default
+        const response = await fetch(url, options)
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(`API 请求失败 [${response.status}]: ${errorText}`)
+        }
+        return response.json()
+    }
+
+    /**
+     * 使用指定 api_key 请求（用于公共读：搜图/随机图）
+     */
+    async apiRequestWithKey(apiKey, endpoint, method = 'GET', body = null) {
+        const api_url = String(this.config.api_url || '').trim()
+        if (!api_url) throw new Error('请先配置 api_url')
+
+        const key = String(apiKey || '').trim()
+        if (!key) throw new Error('未配置可用的 ImgTag api_key')
+
+        const url = `${api_url}/api/v1/external${endpoint}`
+        const headers = {
+            'api_key': key,
+            'Content-Type': 'application/json'
+        }
+        const options = { method, headers }
+        if (body) options.body = JSON.stringify(body)
+
+        const fetch = (await import('node-fetch')).default
+        const response = await fetch(url, options)
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(`API 请求失败 [${response.status}]: ${errorText}`)
+        }
+        return response.json()
+    }
+
+    /**
+     * 获取一个“可用于公共读”的 key
+     * 优先：全局 api_key；否则从 ImgTag.user_keys（Guoba 管理）里轮询取一个
+     */
+    getAnyReadApiKey() {
+        const globalKey = String(this.config.api_key || '').trim()
+        if (globalKey) return globalKey
+
+        const pool = (Array.isArray(this.config.user_keys) ? this.config.user_keys : [])
+            .filter(row => row?.enabled !== false)
+            .map(row => String(row?.api_key || '').trim())
+            .filter(k => k && k !== MASKED_KEY_PLACEHOLDER)
+
+        if (pool.length === 0) return null
+
+        const idx = Math.abs(this._readKeyCursor) % pool.length
+        this._readKeyCursor = (this._readKeyCursor + 1) % 1000000
+        return pool[idx]
+    }
+
+    /**
      * 上传图片到云端
      * @param {string} imageUrl - 原始图片 URL
      * @param {string[]} tags - 标签列表
@@ -269,6 +507,18 @@ class ImgTagService {
         return this.apiRequest('/images', 'POST', body)
     }
 
+    async addImageForUser(userId, imageUrl, tags = [], description = '', callbackUrl = null) {
+        const body = {
+            image_url: imageUrl,
+            auto_analyze: this.config.auto_analyze !== false
+        }
+        if (tags.length > 0) body.tags = tags
+        if (description) body.description = description
+        if (this.config.default_category_id) body.category_id = this.config.default_category_id
+        if (callbackUrl) body.callback_url = callbackUrl
+        return this.apiRequestForUser(userId, '/images', 'POST', body)
+    }
+
     /**
      * 搜索图片
      * @param {string} keyword - 关键词
@@ -288,6 +538,26 @@ class ImgTagService {
         return this.apiRequest(`/images/search?${params.toString()}`)
     }
 
+    async searchImagesForUser(userId, keyword = '', tags = [], limit = null) {
+        const params = new URLSearchParams()
+        if (keyword) params.append('keyword', keyword)
+        if (tags.length > 0) tags.forEach(tag => params.append('tags', tag))
+        params.append('limit', limit || this.config.search_limit || 20)
+        return this.apiRequestForUser(userId, `/images/search?${params.toString()}`)
+    }
+
+    async searchImagesPublic(keyword = '', tags = [], limit = null) {
+        const key = this.getAnyReadApiKey()
+        if (!key) throw new Error('管理员未配置可用的 ImgTag api_key')
+
+        const params = new URLSearchParams()
+        if (keyword) params.append('keyword', keyword)
+        if (tags.length > 0) tags.forEach(tag => params.append('tags', tag))
+        params.append('limit', limit || this.config.search_limit || 20)
+
+        return this.apiRequestWithKey(key, `/images/search?${params.toString()}`)
+    }
+
     /**
      * 获取随机图片
      * @param {string[]} tags - 标签过滤
@@ -305,6 +575,24 @@ class ImgTagService {
         return this.apiRequest(`/images/random?${params.toString()}`)
     }
 
+    async getRandomImagesForUser(userId, tags = [], count = null) {
+        const params = new URLSearchParams()
+        if (tags.length > 0) tags.forEach(tag => params.append('tags', tag))
+        params.append('count', count || this.config.random_count || 1)
+        return this.apiRequestForUser(userId, `/images/random?${params.toString()}`)
+    }
+
+    async getRandomImagesPublic(tags = [], count = null) {
+        const key = this.getAnyReadApiKey()
+        if (!key) throw new Error('管理员未配置可用的 ImgTag api_key')
+
+        const params = new URLSearchParams()
+        if (tags.length > 0) tags.forEach(tag => params.append('tags', tag))
+        params.append('count', count || this.config.random_count || 1)
+
+        return this.apiRequestWithKey(key, `/images/random?${params.toString()}`)
+    }
+
     /**
      * 获取图片详情
      * @param {number} imageId - 图片 ID
@@ -312,6 +600,10 @@ class ImgTagService {
      */
     async getImageDetail(imageId) {
         return this.apiRequest(`/images/${imageId}`)
+    }
+
+    async getImageDetailForUser(userId, imageId) {
+        return this.apiRequestForUser(userId, `/images/${imageId}`)
     }
 
     /**
