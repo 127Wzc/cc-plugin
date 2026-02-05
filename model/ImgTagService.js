@@ -61,15 +61,12 @@ class ImgTagService {
     }
 
     /**
-     * 是否授权使用 ImgTag（主人/allowed_users/user_keys enabled）
+     * 是否授权使用 ImgTag（主人 / user_keys enabled）
      */
     isAllowedUser(userId) {
         const uid = String(userId || '')
         if (!uid) return false
         if (this.isMaster(uid)) return true
-
-        const allowed = Array.isArray(this.config.allowed_users) ? this.config.allowed_users.map(String) : []
-        if (allowed.includes(uid)) return true
 
         const userKeys = Array.isArray(this.config.user_keys) ? this.config.user_keys : []
         return userKeys.some(item => String(item?.user_id) === uid && item?.enabled !== false)

@@ -165,18 +165,6 @@ export function supportGuoba() {
                     component: 'Divider'
                 },
                 {
-                    field: 'ImgTag.allowed_users',
-                    label: '授权用户 QQ',
-                    helpMessage: '允许使用 ImgTag 指令的 QQ 白名单',
-                    bottomHelpMessage: '未授权用户触发 ImgTag 指令会无感不响应',
-                    component: 'GTags',
-                    componentProps: {
-                        placeholder: '输入QQ号后按回车添加',
-                        allowAdd: true,
-                        allowDel: true
-                    }
-                },
-                {
                     field: 'ImgTag.user_keys',
                     label: '用户-APIKey 关联',
                     helpMessage: '为指定 QQ 分配 ImgTag 个人 api_key（用于上传/搜图/随机图）',

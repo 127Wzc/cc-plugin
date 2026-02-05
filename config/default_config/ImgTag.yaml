@@ -38,9 +38,6 @@ disabled_summary:
   - "动画表情"
   - "图片"
 
-# 授权用户 QQ 白名单（未授权用户触发 ImgTag 指令无感不响应）
-allowed_users: []
-
 # 用户-APIKey 关联（建议在 Guoba 面板配置，不会在面板回显明文）
 # user_keys:
 #   - user_id: 123456
