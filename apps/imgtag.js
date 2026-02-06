@@ -176,15 +176,15 @@ export class ImgTag extends plugin {
             priority: 100,
             rule: [
                 {
-                    reg: '^#?cc图库设置key\\s+(.+)$',
+                    reg: '^#?cc图床设置key\\s+(.+)$',
                     fnc: 'setUserKey'
                 },
                 {
-                    reg: '^#?cc图库删除key$',
+                    reg: '^#?cc图床删除key$',
                     fnc: 'deleteUserKey'
                 },
                 {
-                    reg: '^#?cc图库我的状态$',
+                    reg: '^#?cc图床(我的状态|状态)$',
                     fnc: 'myStatus'
                 },
                 {
@@ -541,8 +541,6 @@ export class ImgTag extends plugin {
      * 指令: #图库状态
      */
     async showStats(e) {
-        if (!ImgTagService.isAllowedUser(e.user_id)) return true
-
         try {
             const localStats = ImgTagService.getStats()
             const config = ImgTagService.config

@@ -456,12 +456,9 @@ class ImgTagService {
 
     /**
      * 获取一个“可用于公共读”的 key
-     * 优先：全局 api_key；否则从 ImgTag.user_keys（Guoba 管理）里轮询取一个
+     * 从 ImgTag.user_keys（Guoba 管理）里随机取一个启用的 key
      */
     getAnyReadApiKey() {
-        const globalKey = String(this.config.api_key || '').trim()
-        if (globalKey) return globalKey
-
         const pool = (Array.isArray(this.config.user_keys) ? this.config.user_keys : [])
             .filter(row => row?.enabled !== false)
             .map(row => String(row?.api_key || '').trim())
@@ -469,8 +466,7 @@ class ImgTagService {
 
         if (pool.length === 0) return null
 
-        const idx = Math.abs(this._readKeyCursor) % pool.length
-        this._readKeyCursor = (this._readKeyCursor + 1) % 1000000
+        const idx = Math.floor(Math.random() * pool.length)
         return pool[idx]
     }
 

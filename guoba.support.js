@@ -168,7 +168,7 @@ export function supportGuoba() {
                     field: 'ImgTag.user_keys',
                     label: '用户-APIKey 关联',
                     helpMessage: '为指定 QQ 分配 ImgTag 个人 api_key（用于上传/搜图/随机图）',
-                    bottomHelpMessage: '出于安全考虑，已保存的 key 不会在面板回显；如需修改请重新输入覆盖。若未配置全局 api_key，#cc搜图/#cc随机图 将从这里随机/轮询选取一个 key 用于普通用户访问。',
+                    bottomHelpMessage: '出于安全考虑，已保存的 key 不会在面板回显；如需修改请重新输入覆盖。#cc搜图/#cc随机图/#cc来张 会从这里随机选取一个启用的 key 供所有用户使用。',
                     component: 'GSubForm',
                     componentProps: {
                         multiple: true,
