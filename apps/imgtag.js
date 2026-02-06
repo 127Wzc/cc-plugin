@@ -7,7 +7,7 @@ const pendingCallbacks = new Map()
 function needKeyTip() {
     return (
         `🔑 需要先配置你的 ImgTag 个人 api_key 才能使用该功能\n` +
-        `- 自己设置：#cc图床设置key <api_key>\n` +
+        `- 自己设置：#cc图库设置key <api_key>\n` +
         `- 或让管理员在 Guoba 面板为你分配（ImgTag.user_keys）`
     )
 }
@@ -176,15 +176,15 @@ export class ImgTag extends plugin {
             priority: 100,
             rule: [
                 {
-                    reg: '^#?cc图床设置key\\s+(.+)$',
+                    reg: '^#?cc图库设置key\\s+(.+)$',
                     fnc: 'setUserKey'
                 },
                 {
-                    reg: '^#?cc图床删除key$',
+                    reg: '^#?cc图库删除key$',
                     fnc: 'deleteUserKey'
                 },
                 {
-                    reg: '^#?cc图床(我的状态|状态)$',
+                    reg: '^#?cc图库我的状态$',
                     fnc: 'myStatus'
                 },
                 {
@@ -209,9 +209,9 @@ export class ImgTag extends plugin {
     }
 
     async setUserKey(e) {
-        const key = (e.msg.match(/^#?cc图床设置key\s+(.+)$/)?.[1] || '').trim()
+        const key = (e.msg.match(/^#?cc图库设置key\s+(.+)$/)?.[1] || '').trim()
         if (!key) {
-            await e.reply('❌ 请提供 api_key\n用法：#cc图床设置key <api_key>', true)
+            await e.reply('❌ 请提供 api_key\n用法：#cc图库设置key <api_key>', true)
             return true
         }
 
