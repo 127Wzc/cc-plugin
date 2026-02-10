@@ -29,6 +29,7 @@ export class help extends plugin {
                 group: '🍌 大香蕉绘图',
                 list: [
                     { title: '#cc [提示词]', desc: '生成/编辑图片' },
+                    { title: '#cc视频 [提示词]', desc: '生成视频（必须有参考图：回复/附图/@头像/自己头像）' },
                     { title: '#大香蕉模型列表', desc: '支持的模型' },
                     { title: '#大香蕉预设列表', desc: '预设关键字' }
                 ]
@@ -76,6 +77,8 @@ export class help extends plugin {
             {
                 group: '🔧 管理命令 (仅主人)',
                 list: [
+                    { title: '#cc切换图片模型<模型名>', desc: '切换生图默认模型（default/默认/清空 可重置）' },
+                    { title: '#cc切换视频模型<模型名>', desc: '切换视频默认模型（follow/跟随/default 可恢复跟随图片）' },
                     { title: '#大香蕉添加key', desc: '添加API密钥' },
                     { title: '#大香蕉key列表', desc: '密钥状态' },
                     { title: '#大香蕉调试', desc: '调试信息' }

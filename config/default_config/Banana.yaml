@@ -6,6 +6,10 @@ api_url: "https://hw-newapi.559558.xyz/v1/chat/completions"
 # 默认模型
 default_model: "gemini-3-pro-image-preview"
 
+# 默认视频模型（用于 #cc视频；OpenAI 标准协议，必须提供 1 张参考图）
+# 留空则回退到 default_model
+default_video_model: ""
+
 # 是否使用流式响应
 use_stream: true
 

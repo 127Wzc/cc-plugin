@@ -245,6 +245,16 @@ export function supportGuoba() {
                     }
                 },
                 {
+                    field: 'Banana.default_video_model',
+                    label: '默认视频模型',
+                    helpMessage: '生成视频时使用的默认模型（#cc视频，必须提供参考图），留空则回退到默认模型',
+                    bottomHelpMessage: '此处填写你的后端支持的视频模型名称，例如 kling / runway / luma 等（以实际后端为准）',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: '请输入默认视频模型（可留空）'
+                    }
+                },
+                {
                     label: '功能设置',
                     component: 'Divider'
                 },

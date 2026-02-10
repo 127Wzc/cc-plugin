@@ -2,6 +2,7 @@ import https from 'https'
 import http from 'http'
 import BananaService from '../model/BananaService.js'
 import Render from '../components/Render.js'
+import Config from '../components/Cfg.js'
 
 // 省略 base64 内容用于日志打印
 function omitBase64ForLog(obj, maxLength = 50) {
@@ -67,14 +68,14 @@ function processTaskQueue(maxConcurrent) {
     }
 }
 
-function enqueueJob(e, label, jobFn, maxQueue, maxConcurrent) {
+function enqueueJob(e, label, jobFn, maxQueue, maxConcurrent, { kind = '图片', emoji = '🎨' } = {}) {
     if (taskQueue.length >= maxQueue) {
         e.reply(`❌ 当前任务较多，队列已满（${maxQueue}）。请稍后再试~`)
         return false
     }
     taskQueue.push({ jobFn, label })
     const total = taskQueue.length + runningTasks
-    e.reply(`🎨 正在生成[${label}]图片，当前队列 ${total} 个（执行中 ${runningTasks}/${maxConcurrent}），请稍候…`)
+    e.reply(`${emoji} 正在生成[${label}]${kind}，当前队列 ${total} 个（执行中 ${runningTasks}/${maxConcurrent}），请稍候…`)
     processTaskQueue(maxConcurrent)
     return true
 }
@@ -108,6 +109,20 @@ export class banana extends plugin {
                 {
                     reg: presetReg,
                     fnc: 'generateImageByPreset'
+                },
+                {
+                    reg: '^#cc切换图片模型\\s*.+$',
+                    fnc: 'switchImageModel',
+                    permission: 'master'
+                },
+                {
+                    reg: '^#cc切换视频模型\\s*.+$',
+                    fnc: 'switchVideoModel',
+                    permission: 'master'
+                },
+                {
+                    reg: '^#cc视频.*',
+                    fnc: 'generateVideo'
                 },
                 {
                     reg: '^#cc.*',
@@ -237,13 +252,39 @@ export class banana extends plugin {
 
         enqueueJob(e, `图片生成`, async () => {
             await this.performGeneration(e, baseModel, prompt, startTime, true)
-        }, maxQueue, maxConcurrent)
+        }, maxQueue, maxConcurrent, { kind: '图片', emoji: '🎨' })
     }
 
     // 从响应数据中提取图片 URL
     extractImagesFromData(data, existingUrls = []) {
         const imageUrls = [...existingUrls]
         const hasBase64 = imageUrls.some(url => url.startsWith('data:image/'))
+
+        // OpenAI 标准：content 可能是数组（多模态分段）
+        const extractFromContentParts = parts => {
+            if (!Array.isArray(parts)) return
+            for (const part of parts) {
+                if (!part || typeof part !== 'object') continue
+                if (part.type === 'image_url' && part.image_url?.url) {
+                    const url = part.image_url.url
+                    if (url.startsWith('data:image/')) {
+                        if (!hasBase64) imageUrls.push(url)
+                    } else if (url.startsWith('http') && !imageUrls.includes(url)) {
+                        imageUrls.push(url)
+                    }
+                    continue
+                }
+                if (typeof part.url === 'string' && part.url.startsWith('http') && !imageUrls.includes(part.url)) {
+                    // 兼容部分后端直接给 url 字段
+                    imageUrls.push(part.url)
+                }
+            }
+        }
+
+        if (Array.isArray(data)) {
+            extractFromContentParts(data)
+            return imageUrls
+        }
 
         if (data.images && Array.isArray(data.images)) {
             for (const img of data.images) {
@@ -258,19 +299,200 @@ export class banana extends plugin {
             }
         }
 
+        if (data.content && Array.isArray(data.content)) {
+            extractFromContentParts(data.content)
+        }
+
         if (data.content && typeof data.content === 'string') {
             const content = data.content
             const markdownMatches = [...content.matchAll(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/g)]
             for (const match of markdownMatches) {
-                if (!imageUrls.includes(match[1])) imageUrls.push(match[1])
+                const url = match[1]
+                if (/\.(mp4|webm|mov|m4v|mkv)(\?|#|$)/i.test(url)) continue
+                if (!imageUrls.includes(url)) imageUrls.push(url)
             }
             const urlMatches = [...content.matchAll(/(https?:\/\/[^\s<>")\]]+)/g)]
             for (const match of urlMatches) {
-                if (!imageUrls.includes(match[1])) imageUrls.push(match[1])
+                const url = match[1]
+                // 避免把视频链接当图片链接
+                if (/\.(mp4|webm|mov|m4v|mkv)(\?|#|$)/i.test(url)) continue
+                if (!imageUrls.includes(url)) imageUrls.push(url)
             }
         }
 
         return imageUrls
+    }
+
+    // 从响应数据中提取视频 URL（尽量兼容不同后端返回结构）
+    extractVideosFromData(data, existingUrls = []) {
+        const videoUrls = [...existingUrls]
+
+        const addUrl = url => {
+            if (!url || typeof url !== 'string') return
+            const trimmed = url.trim()
+            if (!trimmed) return
+            if (!videoUrls.includes(trimmed)) videoUrls.push(trimmed)
+        }
+
+        if (!data) return videoUrls
+
+        // 结构化字段（兼容 video_url / videos / video 等）
+        const extractFromContentParts = parts => {
+            if (!Array.isArray(parts)) return
+            for (const part of parts) {
+                if (!part || typeof part !== 'object') continue
+                // OpenAI 标准：video_url 分段
+                if (part.type === 'video_url' && typeof part.video_url?.url === 'string') {
+                    addUrl(part.video_url.url)
+                    continue
+                }
+                // 一些后端用 video / output_video
+                if (part.type === 'video' || part.type === 'output_video') {
+                    if (typeof part.url === 'string') addUrl(part.url)
+                    if (typeof part.video_url?.url === 'string') addUrl(part.video_url.url)
+                }
+                // 兜底：直接给 url
+                if (typeof part.url === 'string') {
+                    if (/\.(mp4|webm|mov|m4v|mkv)(\?|#|$)/i.test(part.url)) addUrl(part.url)
+                    if (part.url.startsWith('base64://')) addUrl(part.url)
+                    if (part.url.startsWith('data:video/')) addUrl(part.url)
+                }
+            }
+        }
+
+        if (Array.isArray(data)) {
+            extractFromContentParts(data)
+            return videoUrls
+        }
+
+        if (typeof data === 'object') {
+            const pushFrom = v => {
+                if (!v) return
+                if (typeof v === 'string') return addUrl(v)
+                if (typeof v === 'object') {
+                    if (typeof v.url === 'string') addUrl(v.url)
+                    if (typeof v.file === 'string') addUrl(v.file)
+                    if (typeof v.video_url?.url === 'string') addUrl(v.video_url.url)
+                    if (typeof v.video_url === 'string') addUrl(v.video_url)
+                }
+            }
+
+            if (Array.isArray(data.videos)) data.videos.forEach(pushFrom)
+            if (Array.isArray(data.video)) data.video.forEach(pushFrom)
+            if (data.video_url) pushFrom(data.video_url)
+            if (data.videoUrl) pushFrom(data.videoUrl)
+
+            // OpenAI 标准：message.content 可能是数组
+            if (Array.isArray(data.content)) extractFromContentParts(data.content)
+        }
+
+        // 文本内容中的链接（mp4/webm/mov/m4v/mkv）或 base64:// 或 data:video;base64
+        const content = typeof data === 'string' ? data : typeof data.content === 'string' ? data.content : ''
+        if (content) {
+            // markdown 链接
+            const mdMatches = [...content.matchAll(/\]\((https?:\/\/[^\s)]+)\)/g)]
+            for (const m of mdMatches) {
+                const u = m[1]
+                if (/\.(mp4|webm|mov|m4v|mkv)(\?|#|$)/i.test(u)) addUrl(u)
+            }
+
+            // 常见视频后缀 URL（带查询参数也行）
+            const urlMatches = [...content.matchAll(/(https?:\/\/[^\s<>()"']+)/g)]
+            for (const m of urlMatches) {
+                const u = m[1]
+                if (/\.(mp4|webm|mov|m4v|mkv)(\?|#|$)/i.test(u)) addUrl(u)
+            }
+
+            const base64Matches = [...content.matchAll(/(base64:\/\/[A-Za-z0-9+/=]+)/g)]
+            for (const m of base64Matches) addUrl(m[1])
+
+            const dataVideoMatches = [...content.matchAll(/(data:video\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+)/gi)]
+            for (const m of dataVideoMatches) addUrl(m[1])
+        }
+
+        return videoUrls
+    }
+
+    toVideoSegment(url) {
+        if (!url || typeof url !== 'string') return null
+        const trimmed = url.trim()
+        if (!trimmed) return null
+
+        if (trimmed.startsWith('base64://')) {
+            return segment.video(trimmed)
+        }
+
+        if (trimmed.startsWith('data:video/') && trimmed.includes(';base64,')) {
+            const base64 = trimmed.split(';base64,').pop()
+            if (base64) return segment.video(`base64://${base64}`)
+        }
+
+        return segment.video(trimmed)
+    }
+
+    async generateVideo(e) {
+        const startTime = Date.now()
+        const rawPrompt = e.msg.replace(/^#cc视频\s*/, '').trim()
+
+        const model = this.config.default_video_model || this.config.default_model || 'gemini-3-pro-image-preview'
+        const prompt = rawPrompt || '根据提供的图片生成一段短视频，尽量保持主体一致性与风格一致性。'
+
+        const maxQueue = this.config.max_queue || 5
+        const maxConcurrent = this.config.max_concurrent || 1
+
+        enqueueJob(e, `视频生成`, async () => {
+            await this.performVideoGeneration(e, model, prompt, startTime)
+        }, maxQueue, maxConcurrent, { kind: '视频', emoji: '🎬' })
+    }
+
+    async switchImageModel(e) {
+        if (!e.isMaster) {
+            await e.reply('❌ 仅主人可用')
+            return true
+        }
+
+        const raw = e.msg.replace(/^#cc切换图片模型\s*/i, '').trim()
+        if (!raw) {
+            await e.reply('❌ 请提供模型名称\n用法：#cc切换图片模型<模型名>')
+            return true
+        }
+
+        const normalized = raw.toLowerCase()
+        const nextModel =
+            ['default', '默认', '清空', 'clear', 'reset'].includes(normalized) ? '' : raw
+
+        Config.modify('Banana', 'default_model', nextModel, 'config')
+        const cfg = BananaService.config
+        await e.reply(
+            `✅ 已切换图片模型\n当前图片模型: ${cfg.default_model || '（空）'}\n当前视频模型: ${cfg.default_video_model || '（跟随图片模型）'}`,
+        )
+        return true
+    }
+
+    async switchVideoModel(e) {
+        if (!e.isMaster) {
+            await e.reply('❌ 仅主人可用')
+            return true
+        }
+
+        const raw = e.msg.replace(/^#cc切换视频模型\s*/i, '').trim()
+        if (!raw) {
+            await e.reply('❌ 请提供模型名称\n用法：#cc切换视频模型<模型名>')
+            return true
+        }
+
+        const normalized = raw.toLowerCase()
+        const nextModel =
+            ['default', '默认', '清空', 'clear', 'reset', 'follow', '跟随'].includes(normalized)
+                ? ''
+                : raw
+
+        Config.modify('Banana', 'default_video_model', nextModel, 'config')
+        const cfg = BananaService.config
+        await e.reply(
+            `✅ 已切换视频模型\n当前图片模型: ${cfg.default_model || '（空）'}\n当前视频模型: ${cfg.default_video_model || '（跟随图片模型）'}`,
+        )
+        return true
     }
 
     async performGeneration(e, model, prompt, startTime, isDirectCommand = false, presetName = null) {
@@ -412,6 +634,15 @@ export class banana extends plugin {
                     const presetText = presetName ? `\n🎯 预设: ${presetName}` : ''
                     replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}${countText}`)
                     await e.reply(replyMsg, hasReplySource)  // 如果使用了引用消息的图片，则引用回复
+                } else if (Array.isArray(result.videoUrls) && result.videoUrls.length > 0) {
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+                    const replyMsg = []
+                    for (const url of result.videoUrls.slice(0, 3)) {
+                        const seg = this.toVideoSegment(url)
+                        if (seg) replyMsg.push(seg)
+                    }
+                    replyMsg.push(`\n✅ 生成完成（${elapsed}s）\n🤖 模型: ${model}\n⚠️ 检测到视频输出，已发送视频结果。`)
+                    await e.reply(replyMsg, hasReplySource)
                 }
             } else {
                 throw new Error(result.error)
@@ -435,11 +666,160 @@ export class banana extends plugin {
         }
     }
 
+	    async performVideoGeneration(e, model, prompt, startTime) {
+        let imageUrls = []
+        let hasReplySource = false
+
+        const replyImgs = await this.takeSourceMsg(e, { img: true })
+        if (Array.isArray(replyImgs) && replyImgs.length > 0) {
+            imageUrls.push(...replyImgs)
+            hasReplySource = true
+        }
+
+        const currentMsgImgs = e.message
+            .filter(m => m.type === 'image' && m.url)
+            .map(m => m.url)
+        if (currentMsgImgs.length > 0) imageUrls.push(...currentMsgImgs)
+
+        // 若无图片：优先取 @ 的头像，否则取发送者头像
+        if (imageUrls.length === 0) {
+            const atSeg = e.message.find(m => m.type === 'at')
+            if (atSeg?.qq) {
+                const avatar = await this.getAvatarUrl(atSeg.qq)
+                if (avatar) imageUrls.push(avatar)
+            }
+            if (imageUrls.length === 0) {
+                const senderAvatar = await this.getAvatarUrl(e.user_id)
+                if (senderAvatar) imageUrls.push(senderAvatar)
+            }
+        }
+
+        // 视频生成必须有参考图（至少 1 张）
+        if (imageUrls.length === 0) {
+            await e.reply('❌ 视频生成必须提供一张参考图：请在消息中附带图片，或回复一张图片再发送 #cc视频 [提示词]')
+            return
+        }
+
+        // 视频模型通常只需要 1 张参考图
+        if (imageUrls.length > 0) {
+            const unique = Array.from(new Set(imageUrls.filter(Boolean)))
+            imageUrls = unique.slice(0, 1)
+        }
+
+        const refImageUrl = await this.normalizeVideoRefImageUrl(imageUrls[0])
+        if (!refImageUrl) {
+            await e.reply('❌ 参考图处理失败：无法获取可用图片（建议换一张 jpg/png 图片再试）')
+            return
+        }
+
+        let content = []
+        if (prompt) {
+            content.push({ type: 'text', text: prompt })
+        }
+
+        // OpenAI 标准：messages[].content[] 传 text + image_url
+        content.push({ type: 'image_url', image_url: { url: refImageUrl } })
+
+        if (content.length === 0) {
+            content.push({ type: 'text', text: '生成一段短视频' })
+        }
+
+        // 生产视频强制使用流式
+        const useStream = true
+        const payload = {
+            model: model,
+            messages: [{ role: 'user', content: content }],
+            stream: useStream
+        }
+
+        let currentApiKey = null
+        try {
+            currentApiKey = BananaService.getNextApiKey()
+        } catch (keyError) {
+            await e.reply(`❌ ${keyError.message}`)
+            return
+        }
+
+        const apiUrl = this.config.api_url
+        if (!apiUrl) {
+            await e.reply('❌ 请先配置 API 服务地址')
+            return
+        }
+
+        const urlObj = new URL(apiUrl)
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentApiKey}`,
+            'User-Agent': 'Yunzai-Banana-Plugin/1.0.0',
+            'Accept': '*/*',
+            'Host': urlObj.host,
+            'Connection': 'keep-alive'
+        }
+
+        logger.debug(`[Banana] 视频 API 请求 - 地址: ${apiUrl}`)
+        logger.debug(`[Banana] 视频 API 请求 - 模型: ${model}`)
+        logger.debug(`[Banana] 视频 API 请求 - 模式: ${useStream ? '流式' : '非流式'}`)
+        // 打印真实入参结构（会省略 base64 的大段内容）
+        logger.debug(`[Banana] 视频 API 请求 - 入参(省略): ${JSON.stringify(omitBase64ForLog(payload, 80))}`)
+
+        try {
+            const result = await this.streamRequest(apiUrl, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(payload),
+                logStream: true
+            })
+
+            if (!result.success) throw new Error(result.error)
+
+            BananaService.recordKeyUsage(currentApiKey, true)
+            const videoUrls = result.videoUrls || []
+            const imageFallback = result.imageUrls || []
+
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+            const summaryMsg = `✅ 视频生成完成（${elapsed}s）\n🤖 模型: ${model}`
+
+            if (videoUrls.length > 0) {
+                // 先单独发视频，再发总结
+                for (const url of videoUrls.slice(0, 3)) {
+                    const seg = this.toVideoSegment(url)
+                    if (seg) await e.reply(seg)
+                }
+                await e.reply(summaryMsg, hasReplySource)
+                return
+            } else if (imageFallback.length > 0) {
+                // 某些后端可能用图片形式返回（兜底）
+                await e.reply(imageFallback.slice(0, 3).map(url => segment.image(url)), hasReplySource)
+                await e.reply(`${summaryMsg}\n⚠️ 未检测到视频输出，已发送图片结果作为兜底。`)
+                return
+            } else {
+                throw new Error('未找到生成的内容（未解析到视频/图片 URL）')
+            }
+        } catch (err) {
+            BananaService.recordKeyUsage(currentApiKey, false, err?.message)
+
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+            let errorMsg = `❌ 生成失败（${elapsed}s）`
+            errorMsg += `\n错误: ${err.message}`
+            await e.reply(errorMsg)
+        }
+    }
+
     async streamRequest(url, options) {
         return new Promise((resolve, reject) => {
             const urlObj = new URL(url)
             const isHttps = urlObj.protocol === 'https:'
             const httpModule = isHttps ? https : http
+            const logStream = Boolean(options?.logStream)
+            const logPrefix = "[Banana][Stream]"
+
+            const truncateForLog = (text, max = 240) => {
+                const s = String(text ?? "")
+                    .replace(/\r?\n/g, "\\n")
+                    .trim()
+                if (s.length <= max) return s
+                return `${s.slice(0, max)}…(${s.length})`
+            }
 
             const requestOptions = {
                 hostname: urlObj.hostname,
@@ -463,54 +843,114 @@ export class banana extends plugin {
 
                 let buffer = ''
                 let finalImageUrls = []
+                let finalVideoUrls = []
                 let errorMessages = []
+
+                const processJsonChunk = jsonData => {
+                    if (!jsonData || typeof jsonData !== 'object') return
+
+                    // 兼容 OpenAI：choices[].delta / choices[].message
+                    const choice = jsonData.choices?.[0]
+                    const delta = choice?.delta
+                    const message = choice?.message
+
+                    if (logStream) {
+                        const content = delta?.content ?? message?.content
+                        if (typeof content === "string" && content.trim()) {
+                            logger.debug(`${logPrefix} ${truncateForLog(content)}`)
+                        }
+                    }
+
+                    if (delta?.reasoning_content) {
+                        const reasoning = delta.reasoning_content
+                        if (typeof reasoning === 'string' && (reasoning.includes('❌') || reasoning.includes('生成失败')))
+                            errorMessages.push(reasoning.trim())
+                    }
+
+                    if (delta) {
+                        finalImageUrls = this.extractImagesFromData(delta, finalImageUrls)
+                        finalVideoUrls = this.extractVideosFromData(delta, finalVideoUrls)
+                    }
+
+                    if (message) {
+                        finalImageUrls = this.extractImagesFromData(message, finalImageUrls)
+                        finalVideoUrls = this.extractVideosFromData(message, finalVideoUrls)
+                    }
+                }
+
+                const processDataLine = dataLine => {
+                    const data = String(dataLine || '').trim()
+                    if (!data) return
+
+                    if (data === '[DONE]') {
+                        if (logStream) logger.debug(`${logPrefix} [DONE]`)
+                        if (finalVideoUrls.length > 0 || finalImageUrls.length > 0)
+                            resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
+                        else if (errorMessages.length > 0)
+                            resolve({ success: false, error: `生成失败: ${errorMessages.join('\n')}` })
+                        else resolve({ success: false, error: '未找到生成的内容' })
+                        return 'done'
+                    }
+
+                    // 标准 SSE: data: {...}
+                    try {
+                        if (logStream) logger.debug(`${logPrefix} data: ${truncateForLog(data)}`)
+                        processJsonChunk(JSON.parse(data))
+                        return 'ok'
+                    } catch {}
+
+                    return 'skip'
+                }
 
                 res.on('data', chunk => {
                     const chunkStr = chunk.toString()
                     buffer += chunkStr
 
-                    const lines = buffer.split('\n')
+                    const lines = buffer.split(/\r?\n/)
                     buffer = lines.pop()
 
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6).trim()
+                        const trimmed = String(line || '').trim()
+                        if (!trimmed) continue
+                        if (trimmed.startsWith('event:')) continue
+                        if (trimmed.startsWith('id:')) continue
+                        if (trimmed.startsWith('retry:')) continue
 
-                            if (data === '[DONE]') {
-                                if (finalImageUrls.length > 0) {
-                                    resolve({ success: true, imageUrls: finalImageUrls })
-                                } else if (errorMessages.length > 0) {
-                                    resolve({ success: false, error: `生成失败: ${errorMessages.join('\n')}` })
-                                } else {
-                                    resolve({ success: false, error: '未找到生成的内容' })
-                                }
-                                return
-                            }
+                        if (trimmed.startsWith('data:')) {
+                            const ret = processDataLine(trimmed.slice(5))
+                            if (ret === 'done') return
+                            continue
+                        }
 
+                        // 兼容非 SSE：直接一行 JSON
+                        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                             try {
-                                const jsonData = JSON.parse(data)
-
-                                if (jsonData.choices?.[0]?.delta?.reasoning_content) {
-                                    const reasoning = jsonData.choices[0].delta.reasoning_content
-                                    if (reasoning.includes('❌') || reasoning.includes('生成失败')) {
-                                        errorMessages.push(reasoning.trim())
-                                    }
-                                }
-
-                                const delta = jsonData.choices?.[0]?.delta
-                                if (delta) {
-                                    finalImageUrls = this.extractImagesFromData(delta, finalImageUrls)
-                                }
-                            } catch (parseErr) {
-                                // 忽略解析错误
+                                processJsonChunk(JSON.parse(trimmed))
+                            } catch {
+                                // ignore
                             }
                         }
                     }
                 })
 
                 res.on('end', () => {
-                    if (finalImageUrls.length > 0) {
-                        resolve({ success: true, imageUrls: finalImageUrls })
+                    // 处理末尾未换行的数据
+                    const tail = String(buffer || '').trim()
+                    if (tail) {
+                        if (tail.startsWith('data:')) {
+                            const ret = processDataLine(tail.slice(5))
+                            if (ret === 'done') return
+                        } else if (tail.startsWith('{') || tail.startsWith('[')) {
+                            try {
+                                processJsonChunk(JSON.parse(tail))
+                            } catch {
+                                // ignore
+                            }
+                        }
+                    }
+
+                    if (finalVideoUrls.length > 0 || finalImageUrls.length > 0) {
+                        resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
                     } else if (errorMessages.length > 0) {
                         resolve({ success: false, error: `生成失败: ${errorMessages.join('\n')}` })
                     } else {
@@ -539,6 +979,105 @@ export class banana extends plugin {
 
             req.end()
         })
+    }
+
+    parseDataImageUrl(dataUrl) {
+        if (typeof dataUrl !== 'string') return null
+        if (!dataUrl.startsWith('data:image/')) return null
+
+        const comma = dataUrl.indexOf(',')
+        if (comma < 0) return null
+
+        const meta = dataUrl.slice(5, comma) // e.g. image/png;base64
+        const data = dataUrl.slice(comma + 1)
+        const [mime, ...params] = meta.split(';')
+
+        if (!mime?.startsWith('image/')) return null
+        const isBase64 = params.includes('base64')
+        return { mime, isBase64, data, params }
+    }
+
+    async convertBufferToPngBase64(buffer) {
+        try {
+            const { default: sharp } = await import('sharp')
+            const out = await sharp(buffer).png().toBuffer()
+            return `data:image/png;base64,${out.toString('base64')}`
+        } catch (err) {
+            logger?.warn?.(`[Banana] sharp 转换失败: ${err?.message || err}`)
+            return null
+        }
+    }
+
+    async normalizeVideoRefImageUrl(url) {
+        if (!url || typeof url !== 'string') return null
+
+        // data url：若非 jpg/jpeg/png，则尝试转为 png base64
+        if (url.startsWith('data:image/')) {
+            const parsed = this.parseDataImageUrl(url)
+            if (!parsed) return null
+            if (parsed.mime === 'image/png' || parsed.mime === 'image/jpeg') return url
+
+            let buffer
+            if (parsed.isBase64) {
+                buffer = Buffer.from(parsed.data, 'base64')
+            } else {
+                try {
+                    buffer = Buffer.from(decodeURIComponent(parsed.data))
+                } catch {
+                    buffer = Buffer.from(parsed.data)
+                }
+            }
+            const converted = await this.convertBufferToPngBase64(buffer)
+            return converted
+        }
+
+        // 先 HEAD 轻量判断类型：jpg/jpeg/png 则直接用 URL
+        try {
+            const head = await BananaService.httpRequest(url, { method: 'HEAD', timeout: 8000 })
+            const ct = head?.headers?.['content-type']
+            if (typeof ct === 'string') {
+                const mime = ct.split(';')[0].trim().toLowerCase()
+                if (mime === 'image/png' || mime === 'image/jpeg') return url
+            }
+        } catch {
+            // ignore
+        }
+
+        // GET 下载判断并必要时转码（确保最终为 jpg/png 的 data url）
+        let response
+        try {
+            response = await BananaService.httpRequest(url, { method: 'GET', timeout: 30000 })
+        } catch (err) {
+            logger?.warn?.(`[Banana] 参考图下载失败: ${err?.message || err}`)
+            return null
+        }
+
+        if (!response?.ok) return null
+        const buffer = Buffer.from(await response.arrayBuffer())
+
+        // GIF：沿用现有逻辑（提首帧成 jpeg）
+        if (BananaService.isGifBuffer?.(buffer)) {
+            if (await BananaService.checkFfmpeg?.()) {
+                try {
+                    const jpg = await BananaService.extractGifFirstFrame(buffer)
+                    return `data:image/jpeg;base64,${jpg.toString('base64')}`
+                } catch (err) {
+                    logger?.warn?.(`[Banana] GIF 首帧提取失败: ${err?.message || err}`)
+                    return null
+                }
+            }
+            return null
+        }
+
+        const ct = response?.headers?.['content-type']
+        if (typeof ct === 'string') {
+            const mime = ct.split(';')[0].trim().toLowerCase()
+            if (mime === 'image/png' || mime === 'image/jpeg') return url
+        }
+
+        // 非 jpg/png：转 png base64
+        const png = await this.convertBufferToPngBase64(buffer)
+        return png
     }
 
     async nonStreamRequest(url, options) {
@@ -577,12 +1116,14 @@ export class banana extends plugin {
                         const jsonData = JSON.parse(responseText)
 
                         let finalImageUrls = []
+                        let finalVideoUrls = []
                         if (jsonData.choices?.[0]?.message) {
                             finalImageUrls = this.extractImagesFromData(jsonData.choices[0].message, finalImageUrls)
+                            finalVideoUrls = this.extractVideosFromData(jsonData.choices[0].message, finalVideoUrls)
                         }
 
-                        if (finalImageUrls.length > 0) {
-                            resolve({ success: true, imageUrls: finalImageUrls })
+                        if (finalVideoUrls.length > 0 || finalImageUrls.length > 0) {
+                            resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
                         } else {
                             const errorMsg = jsonData.error?.message || jsonData.message || '未找到生成的内容'
                             resolve({ success: false, error: `生成失败: ${errorMsg}` })
