@@ -8,4 +8,11 @@ ai:
   type: 1
   #群ai回复id 来自data/ai-characters.json character-id
   characterId: "lucy-voice-suxinjiejie"
+
+#QQ注册时间查询
+registerTime:
+  #查询接口地址
+  api_url: "https://openapi.dwo.cc/api/qqxxcx"
+  #openapi.dwo.cc 的 ckey
+  ckey: "123"
     

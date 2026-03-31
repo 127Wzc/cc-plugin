@@ -1,0 +1,6 @@
+enable_command_search_api: false
+base_url: https://api.coze.cn
+personal_access_token: ""
+workflow_id: ""
+default_top_k: 5
+timeout_ms: 30000

@@ -50,18 +50,24 @@ export default class YamlReader {
 
   // 修改某个key的值，支持嵌套路径
   set(keyPath, value) {
-    let keys = keyPath.split(".");
-    let lastKeyIndex = keys.length - 1;
-    keys.forEach((key, index) => {
+    const keys = keyPath.split(".");
+    const lastKeyIndex = keys.length - 1;
+
+    keys.forEach((_, index) => {
       if (index === lastKeyIndex) {
         this.document.setIn(keys, value);
-      } else {
-        let currentObject = this.document.getIn(keys.slice(0, index + 1));
-        if (!currentObject || !_.isObject(currentObject)) {
-          this.document.setIn(keys.slice(0, index + 1), {});
-        }
+        return;
+      }
+
+      const currentPath = keys.slice(0, index + 1);
+      const currentNode = this.document.getIn(currentPath);
+      const isCollectionNode = currentNode && typeof currentNode === "object" && Array.isArray(currentNode.items);
+
+      if (!isCollectionNode) {
+        this.document.setIn(currentPath, this.document.createNode({}));
       }
     });
+
     this.save();
   }
 

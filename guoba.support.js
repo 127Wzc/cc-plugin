@@ -1,7 +1,67 @@
 import Config from './components/Cfg.js'
 import lodash from 'lodash'
+import BananaService from './model/BananaService.js'
 
 const MASKED_KEY_PLACEHOLDER = '******'
+
+function getBananaKeysForGuoba() {
+    const keysConfig = BananaService.getKeysConfig()
+    return (keysConfig.keys || []).map(row => ({
+        name: row?.name || '',
+        api_key: row?.value || '',
+        enabled: row?.status !== 'disabled',
+        notes: row?.notes || ''
+    }))
+}
+
+function mergeBananaKeys(nextList) {
+    const keysConfig = BananaService.getKeysConfig()
+    const existingKeys = Array.isArray(keysConfig.keys) ? keysConfig.keys : []
+    const now = new Date().toISOString()
+    const today = new Date().toDateString()
+
+    const keys = (Array.isArray(nextList) ? nextList : [])
+        .map((row, index) => {
+            const prev = existingKeys[index] || {}
+            let apiKey = row?.api_key
+
+            if (apiKey === MASKED_KEY_PLACEHOLDER || apiKey === undefined || apiKey === null) {
+                apiKey = prev?.value || ''
+            }
+
+            apiKey = String(apiKey || '').trim()
+            if (!apiKey) return null
+
+            return {
+                id: prev?.id || `key_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+                value: apiKey,
+                name: String(row?.name || prev?.name || `密钥${index + 1}`).trim(),
+                status: row?.enabled === false ? 'disabled' : 'active',
+                addedAt: prev?.addedAt || now,
+                addedBy: prev?.addedBy || null,
+                lastUsed: prev?.lastUsed || null,
+                usageCount: Number(prev?.usageCount) || 0,
+                todayUsage: Number(prev?.todayUsage) || 0,
+                todayDate: prev?.todayDate || today,
+                errorCount: Number(prev?.errorCount) || 0,
+                todayFailed: Number(prev?.todayFailed) || 0,
+                todayFailedDate: prev?.todayFailedDate || today,
+                notes: String(row?.notes || prev?.notes || '').trim()
+            }
+        })
+        .filter(Boolean)
+
+    const currentKeyId = existingKeys[keysConfig.currentIndex]?.id
+    let currentIndex = keys.findIndex(row => row.id === currentKeyId && row.status === 'active')
+    if (currentIndex < 0) currentIndex = keys.findIndex(row => row.status === 'active')
+    if (currentIndex < 0) currentIndex = 0
+
+    BananaService.saveKeysConfig({
+        ...keysConfig,
+        keys,
+        currentIndex
+    })
+}
 
 // 支持锅巴
 export function supportGuoba() {
@@ -296,6 +356,52 @@ export function supportGuoba() {
                     component: 'Switch'
                 },
                 {
+                    label: '密钥管理',
+                    component: 'Divider'
+                },
+                {
+                    field: 'Banana.keys',
+                    label: 'API 密钥列表',
+                    helpMessage: '配置 Banana 使用的 API 密钥列表',
+                    bottomHelpMessage: '已保存的密钥不会在面板回显；如需修改请重新输入覆盖。支持启用/禁用和备注。',
+                    component: 'GSubForm',
+                    componentProps: {
+                        multiple: true,
+                        schemas: [
+                            {
+                                field: 'name',
+                                label: '名称',
+                                component: 'Input',
+                                componentProps: {
+                                    placeholder: '例如：主线路 key'
+                                }
+                            },
+                            {
+                                field: 'api_key',
+                                label: 'API 密钥',
+                                component: 'InputPassword',
+                                required: true,
+                                componentProps: {
+                                    placeholder: '输入后保存（不回显）'
+                                }
+                            },
+                            {
+                                field: 'enabled',
+                                label: '启用',
+                                component: 'Switch'
+                            },
+                            {
+                                field: 'notes',
+                                label: '备注',
+                                component: 'Input',
+                                componentProps: {
+                                    placeholder: '可选'
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
                     label: '预设管理',
                     component: 'Divider'
                 },
@@ -378,22 +484,105 @@ export function supportGuoba() {
                     componentProps: {
                         placeholder: 'lucy-voice-suxinjiejie'
                     }
+                },
+                {
+                    label: 'QQ 注册时间查询',
+                    component: 'Divider'
+                },
+                {
+                    field: 'qqConfig.registerTime.api_url',
+                    label: '注册时间接口地址',
+                    bottomHelpMessage: '默认使用 https://openapi.dwo.cc/api/qqxxcx',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: 'https://openapi.dwo.cc/api/qqxxcx'
+                    }
+                },
+                {
+                    field: 'qqConfig.registerTime.ckey',
+                    label: '注册时间查询 CKey',
+                    bottomHelpMessage: '调用 openapi.dwo.cc 接口所需的 ckey',
+                    component: 'InputPassword',
+                    componentProps: {
+                        placeholder: '请输入 ckey'
+                    }
+                },
+
+                // ==================== Coze 指令检索配置 ====================
+                {
+                    label: 'Coze 指令检索',
+                    component: 'SOFT_GROUP_BEGIN'
+                },
+                {
+                    label: 'Coze API 配置',
+                    component: 'Divider'
+                },
+                {
+                    field: 'Coze.enable_command_search_api',
+                    label: '启用 Coze 指令检索',
+                    bottomHelpMessage: '开启后，chatgpt-plugin 注入的 cc 指令检索工具会优先通过 Coze 工作流进行查询。',
+                    component: 'Switch'
+                },
+                {
+                    field: 'Coze.base_url',
+                    label: 'Coze API 地址',
+                    bottomHelpMessage: '默认使用 https://api.coze.cn，如需国际区或代理可自行替换。',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: 'https://api.coze.cn'
+                    }
+                },
+                {
+                    field: 'Coze.personal_access_token',
+                    label: 'Personal Access Token',
+                    bottomHelpMessage: '用于调用 Coze OpenAPI 的 PAT，建议使用最小必要权限。',
+                    component: 'InputPassword',
+                    componentProps: {
+                        placeholder: 'pat_...'
+                    }
+                },
+                {
+                    field: 'Coze.workflow_id',
+                    label: '工作流 ID',
+                    bottomHelpMessage: '填写用于“查指令/推荐指令”的 Coze 工作流 ID。',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: '748...'
+                    }
+                },
+                {
+                    field: 'Coze.default_top_k',
+                    label: '默认返回条数',
+                    bottomHelpMessage: '当上层工具未传 top_k 时，默认取前 N 条推荐命令。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 1,
+                        max: 20
+                    }
+                },
+                {
+                    field: 'Coze.timeout_ms',
+                    label: '请求超时',
+                    helpMessage: '单位：毫秒',
+                    bottomHelpMessage: '调用 Coze API 的超时时间，建议 10000-60000。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 1000,
+                        step: 1000
+                    }
                 }
             ],
 
             // 获取配置数据
             getConfigData() {
                 const imgTag = lodash.cloneDeep(Config.getDefOrConfig('ImgTag'))
-                if (Array.isArray(imgTag.user_keys)) {
-                    imgTag.user_keys = imgTag.user_keys.map(row => ({
-                        ...row,
-                        api_key: row?.api_key ? MASKED_KEY_PLACEHOLDER : ''
-                    }))
-                }
+                const banana = lodash.cloneDeep(Config.getDefOrConfig('Banana'))
+                banana.keys = getBananaKeysForGuoba()
                 return {
                     ImgTag: imgTag,
-                    Banana: Config.getDefOrConfig('Banana'),
-                    qqConfig: Config.getDefOrConfig('qqConfig')
+                    Banana: banana,
+                    qqConfig: Config.getDefOrConfig('qqConfig'),
+                    Coze: Config.getDefOrConfig('Coze')
                 }
             },
 
@@ -405,7 +594,7 @@ export function supportGuoba() {
                     const configName = parts[0]  // ImgTag 或 qqConfig 或 Banana
                     const fieldPath = parts.slice(1).join('.')  // api_url 或 ai.type
 
-                    if (configName === 'ImgTag' || configName === 'qqConfig' || configName === 'Banana') {
+                    if (configName === 'ImgTag' || configName === 'qqConfig' || configName === 'Banana' || configName === 'Coze') {
                         if (configName === 'ImgTag' && fieldPath === 'user_keys') {
                             const existing = Config.getConfig('ImgTag')?.user_keys || []
                             const existingMap = new Map(existing.map(r => [String(r?.user_id), r]))
@@ -431,6 +620,8 @@ export function supportGuoba() {
                             }
 
                             Config.modify('ImgTag', 'user_keys', Array.from(mergedMap.values()))
+                        } else if (configName === 'Banana' && fieldPath === 'keys') {
+                            mergeBananaKeys(value)
                         } else {
                             Config.modify(configName, fieldPath, value)
                         }
