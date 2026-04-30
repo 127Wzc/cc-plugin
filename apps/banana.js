@@ -70,12 +70,12 @@ function processTaskQueue(maxConcurrent) {
 
 function enqueueJob(e, label, jobFn, maxQueue, maxConcurrent, { kind = '图片', emoji = '🎨' } = {}) {
     if (taskQueue.length >= maxQueue) {
-        e.reply(`❌ 当前任务较多，队列已满（${maxQueue}）。请稍后再试~`)
+        e.reply(`❌ 当前任务较多，队列已满（${maxQueue}）。请稍后再试~`, true)
         return false
     }
     taskQueue.push({ jobFn, label })
     const total = taskQueue.length + runningTasks
-    e.reply(`${emoji} 正在生成[${label}]${kind}，当前队列 ${total} 个（执行中 ${runningTasks}/${maxConcurrent}），请稍候…`)
+    e.reply(`${emoji} 正在生成[${label}]${kind}，当前队列 ${total} 个（执行中 ${runningTasks}/${maxConcurrent}），请稍候…`, true)
     processTaskQueue(maxConcurrent)
     return true
 }
@@ -507,13 +507,12 @@ export class banana extends plugin {
 
     async performGeneration(e, model, prompt, startTime, isDirectCommand = false, presetName = null) {
         let imageUrls = []
-        let hasReplySource = false  // 标记是否使用了引用消息的图片
+        const quoteReply = true
 
         // 回复消息中的图片
         const replyImgs = await this.takeSourceMsg(e, { img: true })
         if (Array.isArray(replyImgs) && replyImgs.length > 0) {
             imageUrls.push(...replyImgs)
-            hasReplySource = true  // 使用了引用消息
         }
 
         // 当前消息里的图片
@@ -643,7 +642,7 @@ export class banana extends plugin {
                     const replyMsg = resultImageUrls.map(url => segment.image(url))
                     const presetText = presetName ? `\n🎯 预设: ${presetName}` : ''
                     replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}${countText}`)
-                    await e.reply(replyMsg, hasReplySource)  // 如果使用了引用消息的图片，则引用回复
+                    await e.reply(replyMsg, quoteReply)
                 } else if (Array.isArray(result.videoUrls) && result.videoUrls.length > 0) {
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
                     const replyMsg = []
@@ -652,7 +651,7 @@ export class banana extends plugin {
                         if (seg) replyMsg.push(seg)
                     }
                     replyMsg.push(`\n✅ 生成完成（${elapsed}s）\n🤖 模型: ${model}\n⚠️ 检测到视频输出，已发送视频结果。`)
-                    await e.reply(replyMsg, hasReplySource)
+                    await e.reply(replyMsg, quoteReply)
                 }
             } else {
                 throw new Error(result.error)
@@ -672,18 +671,17 @@ export class banana extends plugin {
                 errorMsg += `\n\n💡 建议: 连接超时，请检查网络`
             }
 
-            await e.reply(errorMsg)
+            await e.reply(errorMsg, quoteReply)
         }
     }
 
 	    async performVideoGeneration(e, model, prompt, startTime) {
         let imageUrls = []
-        let hasReplySource = false
+        const quoteReply = true
 
         const replyImgs = await this.takeSourceMsg(e, { img: true })
         if (Array.isArray(replyImgs) && replyImgs.length > 0) {
             imageUrls.push(...replyImgs)
-            hasReplySource = true
         }
 
         const currentMsgImgs = e.message
@@ -793,14 +791,14 @@ export class banana extends plugin {
                 // 先单独发视频，再发总结
                 for (const url of videoUrls.slice(0, 3)) {
                     const seg = this.toVideoSegment(url)
-                    if (seg) await e.reply(seg)
+                    if (seg) await e.reply(seg, quoteReply)
                 }
-                await e.reply(summaryMsg, hasReplySource)
+                await e.reply(summaryMsg, quoteReply)
                 return
             } else if (imageFallback.length > 0) {
                 // 某些后端可能用图片形式返回（兜底）
-                await e.reply(imageFallback.slice(0, 3).map(url => segment.image(url)), hasReplySource)
-                await e.reply(`${summaryMsg}\n⚠️ 未检测到视频输出，已发送图片结果作为兜底。`)
+                await e.reply(imageFallback.slice(0, 3).map(url => segment.image(url)), quoteReply)
+                await e.reply(`${summaryMsg}\n⚠️ 未检测到视频输出，已发送图片结果作为兜底。`, quoteReply)
                 return
             } else {
                 throw new Error('未找到生成的内容（未解析到视频/图片 URL）')
@@ -811,7 +809,7 @@ export class banana extends plugin {
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
             let errorMsg = `❌ 生成失败（${elapsed}s）`
             errorMsg += `\n错误: ${err.message}`
-            await e.reply(errorMsg)
+            await e.reply(errorMsg, quoteReply)
         }
     }
 
