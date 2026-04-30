@@ -258,7 +258,19 @@ export class banana extends plugin {
     // 从响应数据中提取图片 URL
     extractImagesFromData(data, existingUrls = []) {
         const imageUrls = [...existingUrls]
-        const hasBase64 = imageUrls.some(url => url.startsWith('data:image/'))
+
+        const addImageUrl = url => {
+            if (!url || typeof url !== 'string') return
+            const normalized = url.startsWith('data:image/')
+                ? url.replace(/\s+/g, '')
+                : url.trim()
+            if (!normalized) return
+            if (normalized.startsWith('data:image/')) {
+                if (!imageUrls.some(item => item.startsWith('data:image/'))) imageUrls.push(normalized)
+            } else if (normalized.startsWith('http') && !imageUrls.includes(normalized)) {
+                imageUrls.push(normalized)
+            }
+        }
 
         // OpenAI 标准：content 可能是数组（多模态分段）
         const extractFromContentParts = parts => {
@@ -266,17 +278,12 @@ export class banana extends plugin {
             for (const part of parts) {
                 if (!part || typeof part !== 'object') continue
                 if (part.type === 'image_url' && part.image_url?.url) {
-                    const url = part.image_url.url
-                    if (url.startsWith('data:image/')) {
-                        if (!hasBase64) imageUrls.push(url)
-                    } else if (url.startsWith('http') && !imageUrls.includes(url)) {
-                        imageUrls.push(url)
-                    }
+                    addImageUrl(part.image_url.url)
                     continue
                 }
-                if (typeof part.url === 'string' && part.url.startsWith('http') && !imageUrls.includes(part.url)) {
+                if (typeof part.url === 'string') {
                     // 兼容部分后端直接给 url 字段
-                    imageUrls.push(part.url)
+                    addImageUrl(part.url)
                 }
             }
         }
@@ -289,12 +296,7 @@ export class banana extends plugin {
         if (data.images && Array.isArray(data.images)) {
             for (const img of data.images) {
                 if (img.type === 'image_url' && img.image_url?.url) {
-                    const url = img.image_url.url
-                    if (url.startsWith('data:image/')) {
-                        if (!hasBase64) imageUrls.push(url)
-                    } else if (url.startsWith('http') && !imageUrls.includes(url)) {
-                        imageUrls.push(url)
-                    }
+                    addImageUrl(img.image_url.url)
                 }
             }
         }
@@ -309,14 +311,22 @@ export class banana extends plugin {
             for (const match of markdownMatches) {
                 const url = match[1]
                 if (/\.(mp4|webm|mov|m4v|mkv)(\?|#|$)/i.test(url)) continue
-                if (!imageUrls.includes(url)) imageUrls.push(url)
+                addImageUrl(url)
+            }
+            const dataMarkdownMatches = [...content.matchAll(/!\[.*?\]\((data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+)\)/gi)]
+            for (const match of dataMarkdownMatches) {
+                addImageUrl(match[1])
             }
             const urlMatches = [...content.matchAll(/(https?:\/\/[^\s<>")\]]+)/g)]
             for (const match of urlMatches) {
                 const url = match[1]
                 // 避免把视频链接当图片链接
                 if (/\.(mp4|webm|mov|m4v|mkv)(\?|#|$)/i.test(url)) continue
-                if (!imageUrls.includes(url)) imageUrls.push(url)
+                addImageUrl(url)
+            }
+            const dataUrlMatches = [...content.matchAll(/(data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+)/gi)]
+            for (const match of dataUrlMatches) {
+                addImageUrl(match[1])
             }
         }
 
