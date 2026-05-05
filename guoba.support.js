@@ -409,7 +409,7 @@ export function supportGuoba() {
                     field: 'Banana.presets',
                     label: '预设列表',
                     helpMessage: '配置预设关键字和提示词',
-                    bottomHelpMessage: '每个预设包含: cmd(关键字), name(名称), desc(描述), prompt(提示词)',
+                    bottomHelpMessage: '每个预设包含: cmd(关键字), name(名称), desc(描述), prompt(提示词)。可用 {{nickname}}/{{qq}}/{{group_name}}/{{sender_nickname}} 等变量；命令后可跟手动昵称覆盖，如 #预设 昵称 或 #预设 name=昵称',
                     component: 'GSubForm',
                     componentProps: {
                         multiple: true,
@@ -445,7 +445,7 @@ export function supportGuoba() {
                                 component: 'InputTextArea',
                                 required: true,
                                 componentProps: {
-                                    placeholder: '生成图片的提示词',
+                                    placeholder: '生成图片的提示词；可用 {{nickname}}、{{qq}}、{{group_name}} 等变量',
                                     autoSize: { minRows: 2, maxRows: 6 }
                                 }
                             }

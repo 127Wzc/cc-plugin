@@ -27,6 +27,11 @@ daily_fail_threshold: 10
 
 # 预设列表
 # 每个预设包含: cmd(命令), name(名称), desc(描述), prompt(提示词)
+# prompt 支持占位符: {{nickname}}/{{name}} 为用户显示名，{{qq}}/{{user_id}} 为用户 QQ
+# 额外可用: {{group_name}}/{{group_id}}、{{sender_nickname}}/{{sender_qq}}；未知占位符会保留原文
+# 显示名优先级: 手动名称 > 群名片 > QQ昵称 > QQ号
+# 预设命令可用 #预设 昵称、#预设 @用户 昵称、#预设 QQ号 昵称 覆盖/指定占位符和头像兜底目标
+# 昵称为纯数字等易混淆内容时，可显式写 #预设 name=12345 或 #预设 qq=123456 name=12345
 presets:
   - cmd: "手办化"
     name: "手办化"

@@ -92,12 +92,14 @@ function escapeRegex(str) {
     return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+const PROMPT_VARIABLE_PATTERN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/
+
 export class banana extends plugin {
     constructor() {
         // 动态生成预设命令正则
         const cmdList = BananaService.getCmdList()
         const presetReg = cmdList.length > 0
-            ? `^#(${cmdList.map(escapeRegex).join('|')})(?:\\s+@(\\d+)|\\s+(\\d+))?$`
+            ? `^#(${cmdList.map(escapeRegex).join('|')})(?:\\s+.+)?$`
             : '^#__DISABLED_PRESET__$'
 
         super({
@@ -194,10 +196,112 @@ export class banana extends plugin {
         return source
     }
 
+    getAtUserId(e) {
+        const atSeg = e.message?.find?.(m => m.type === 'at' && m.qq)
+        if (/^all$/i.test(String(atSeg?.qq || ''))) return ''
+        return atSeg?.qq ? String(atSeg.qq) : ''
+    }
+
+    getTargetUserId(e, explicitUserId = '') {
+        const userId = String(explicitUserId || this.getAtUserId(e) || e.user_id || '').trim()
+        return /^all$/i.test(userId) ? String(e.user_id || '') : userId
+    }
+
+    async getDisplayName(e, userId = e.user_id, manualNickname = '') {
+        const manualName = String(manualNickname || '').trim()
+        if (manualName) return manualName
+
+        const targetUserId = String(userId || e.user_id || '').trim()
+        const isSender = !targetUserId || String(e.user_id) === targetUserId
+
+        if (isSender) {
+            return e.sender?.card || e.sender?.nickname || e.nickname || targetUserId
+        }
+
+        try {
+            const member = e.group?.pickMember?.(targetUserId)
+            let memberInfo = member?.info
+            if (!memberInfo && member?.getInfo) memberInfo = await member.getInfo().catch(() => null)
+            const name = memberInfo?.card || memberInfo?.nickname || member?.card || member?.nickname
+            if (name) return name
+        } catch (err) {
+            logger?.debug?.(`[Banana] 获取群昵称失败: ${err?.message || err}`)
+        }
+
+        try {
+            const friend = e.bot?.pickFriend?.(targetUserId)
+            let friendInfo = friend?.info
+            if (!friendInfo && friend?.getInfo) friendInfo = await friend.getInfo().catch(() => null)
+            const name = friendInfo?.card || friendInfo?.nickname || friend?.card || friend?.nickname
+            if (name) return name
+        } catch (err) {
+            logger?.debug?.(`[Banana] 获取用户昵称失败: ${err?.message || err}`)
+        }
+
+        return targetUserId || String(e.user_id || '')
+    }
+
+    parsePresetArgs(e, rawArgs = '') {
+        const args = String(rawArgs || '').trim()
+        if (!args) return { targetUserId: '', manualNickname: '' }
+
+        const explicitNameMatch = args.match(/^(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)$/i)
+        if (explicitNameMatch) {
+            return { targetUserId: '', manualNickname: explicitNameMatch[1].trim() }
+        }
+
+        const explicitTargetMatch = args.match(/^(?:qq|user|user_id)\s*[=:：]\s*(\d{5,12})(?:\s+(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)|\s+(.+))?$/i)
+        if (explicitTargetMatch) {
+            return {
+                targetUserId: explicitTargetMatch[1],
+                manualNickname: String(explicitTargetMatch[2] || explicitTargetMatch[3] || '').trim()
+            }
+        }
+
+        const atUserId = this.getAtUserId(e)
+        if (atUserId && args.startsWith('@')) {
+            const rest = args.replace(/^@\S+\s*/, '').trim()
+            const nameMatch = rest.match(/^(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)$/i)
+            return { targetUserId: atUserId, manualNickname: (nameMatch?.[1] || rest).trim() }
+        }
+
+        const targetMatch = args.match(/^@?(\d{5,12})(?:\s+(.+))?$/)
+        if (targetMatch) {
+            return {
+                targetUserId: targetMatch[1],
+                manualNickname: String(targetMatch[2] || '').trim()
+            }
+        }
+
+        return { targetUserId: '', manualNickname: args }
+    }
+
+    async renderPromptVariables(e, prompt, targetUserId = '', manualNickname = '') {
+        if (typeof prompt !== 'string' || !PROMPT_VARIABLE_PATTERN.test(prompt)) return prompt
+
+        const userId = this.getTargetUserId(e, targetUserId)
+        const nickname = await this.getDisplayName(e, userId, manualNickname)
+        const variables = {
+            nickname,
+            name: nickname,
+            qq: userId,
+            user_id: userId,
+            group_name: e.group_name || '',
+            group_id: e.group_id ? String(e.group_id) : '',
+            sender_nickname: e.sender?.card || e.sender?.nickname || e.nickname || String(e.user_id || ''),
+            sender_qq: e.user_id ? String(e.user_id) : ''
+        }
+
+        return prompt.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (raw, key) => {
+            const value = variables[String(key).toLowerCase()]
+            return value === undefined ? raw : value
+        })
+    }
+
     async generateImageByPreset(e) {
         const startTime = Date.now()
         const cmdList = BananaService.getCmdList()
-        const cmdRegex = new RegExp(`^#(${cmdList.map(escapeRegex).join('|')})(?:\\s+@(\\d+)|\\s+(\\d+))?$`)
+        const cmdRegex = new RegExp(`^#(${cmdList.map(escapeRegex).join('|')})(?:\\s+(.+))?$`)
         const match = e.msg.match(cmdRegex)
 
         if (!match) {
@@ -206,6 +310,7 @@ export class banana extends plugin {
         }
 
         const cmd = match[1]
+        const { targetUserId, manualNickname } = this.parsePresetArgs(e, match[2])
         const preset = BananaService.getPresetByCmd(cmd)
 
         if (!preset) {
@@ -219,7 +324,7 @@ export class banana extends plugin {
 
         enqueueJob(e, `#${presetCmd}`, async () => {
             const fullModel = this.config.default_model || 'gemini-3-pro-image-preview'
-            await this.performGeneration(e, fullModel, preset.prompt, startTime, false, `#${presetCmd}`)
+            await this.performGeneration(e, fullModel, preset.prompt, startTime, false, `#${presetCmd}`, targetUserId, manualNickname)
         }, maxQueue, maxConcurrent)
     }
 
@@ -505,9 +610,10 @@ export class banana extends plugin {
         return true
     }
 
-    async performGeneration(e, model, prompt, startTime, isDirectCommand = false, presetName = null) {
+    async performGeneration(e, model, prompt, startTime, isDirectCommand = false, presetName = null, targetUserId = '', manualNickname = '') {
         let imageUrls = []
         const quoteReply = true
+        prompt = await this.renderPromptVariables(e, prompt, targetUserId, manualNickname)
 
         // 回复消息中的图片
         const replyImgs = await this.takeSourceMsg(e, { img: true })
@@ -525,9 +631,9 @@ export class banana extends plugin {
 
         // 预设关键字触发且没有图片，使用用户头像兜底
         if (!isDirectCommand && imageUrls.length === 0) {
-            const atSeg = e.message.find(m => m.type === 'at')
-            if (atSeg?.qq) {
-                const avatar = await this.getAvatarUrl(atSeg.qq)
+            const fallbackUserId = this.getTargetUserId(e, targetUserId)
+            if (fallbackUserId) {
+                const avatar = await this.getAvatarUrl(fallbackUserId)
                 if (avatar) imageUrls.push(avatar)
             }
 

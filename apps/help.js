@@ -30,6 +30,8 @@ export class help extends plugin {
                 list: [
                     { title: '#cc [提示词]', desc: '生成/编辑图片' },
                     { title: '#cc视频 [提示词]', desc: '生成视频（必须有参考图：回复/附图/@头像/自己头像）' },
+                    { title: '#预设 昵称', desc: '手动指定昵称（用于含 {{nickname}} 的预设）' },
+                    { title: '#预设 @用户 昵称', desc: '指定目标用户和昵称；也支持 QQ号 昵称' },
                     { title: '#大香蕉模型列表', desc: '支持的模型' },
                     { title: '#大香蕉预设列表', desc: '预设关键字' }
                 ]
@@ -100,6 +102,7 @@ export class help extends plugin {
             tips: [
                 '可以回复图片进行图生图',
                 '支持多张图片输入（最多3张）',
+                '预设提示词可用 {{nickname}} / {{qq}} / {{group_name}} 等变量',
                 '戳一戳机器人有趣互动'
             ]
         })
