@@ -38,6 +38,40 @@ function omitBase64ForLog(obj, maxLength = 50) {
     return obj
 }
 
+function getImagesApiUrl(apiUrl, endpoint) {
+    const urlObj = new URL(apiUrl)
+    const normalizedPath = urlObj.pathname.replace(/\/+$/, '')
+    if (/\/v1\/chat\/completions$/i.test(normalizedPath)) {
+        urlObj.pathname = normalizedPath.replace(/\/v1\/chat\/completions$/i, `/v1/images/${endpoint}`)
+    } else if (/\/v1$/i.test(normalizedPath)) {
+        urlObj.pathname = `${normalizedPath}/images/${endpoint}`
+    } else if (/\/v1\/images\/(generations|edits)$/i.test(normalizedPath)) {
+        urlObj.pathname = normalizedPath.replace(/\/v1\/images\/(generations|edits)$/i, `/v1/images/${endpoint}`)
+    } else {
+        urlObj.pathname = `/v1/images/${endpoint}`
+    }
+    return urlObj.toString()
+}
+
+function buildMultipartBody(fields, files) {
+    const boundary = `----BananaBoundary${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+    const chunks = []
+
+    for (const [name, value] of Object.entries(fields)) {
+        if (value === undefined || value === null || value === '') continue
+        chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`))
+    }
+
+    for (const file of files) {
+        chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n`))
+        chunks.push(file.buffer)
+        chunks.push(Buffer.from('\r\n'))
+    }
+
+    chunks.push(Buffer.from(`--${boundary}--\r\n`))
+    return { boundary, body: Buffer.concat(chunks) }
+}
+
 // 任务队列
 const taskQueue = []
 let runningTasks = 0
@@ -243,37 +277,53 @@ export class banana extends plugin {
 
     parsePresetArgs(e, rawArgs = '') {
         const args = String(rawArgs || '').trim()
-        if (!args) return { targetUserId: '', manualNickname: '' }
+        if (!args) return { targetUserId: '', manualNickname: '', appendPrompt: '' }
 
-        const explicitNameMatch = args.match(/^(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)$/i)
+        const promptMatch = args.match(/(?:^|\s)-p\s+([\s\S]+)$/)
+        const appendPrompt = promptMatch ? promptMatch[1].trim() : ''
+        const nameArgs = promptMatch ? args.slice(0, promptMatch.index).trim() : args
+
+        if (!nameArgs) return { targetUserId: '', manualNickname: '', appendPrompt }
+
+        const explicitNameMatch = nameArgs.match(/^(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)$/i)
         if (explicitNameMatch) {
-            return { targetUserId: '', manualNickname: explicitNameMatch[1].trim() }
+            return { targetUserId: '', manualNickname: explicitNameMatch[1].trim(), appendPrompt }
         }
 
-        const explicitTargetMatch = args.match(/^(?:qq|user|user_id)\s*[=:：]\s*(\d{5,12})(?:\s+(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)|\s+(.+))?$/i)
+        const explicitTargetMatch = nameArgs.match(/^(?:qq|user|user_id)\s*[=:：]\s*(\d{5,12})(?:\s+(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)|\s+(.+))?$/i)
         if (explicitTargetMatch) {
             return {
                 targetUserId: explicitTargetMatch[1],
-                manualNickname: String(explicitTargetMatch[2] || explicitTargetMatch[3] || '').trim()
+                manualNickname: String(explicitTargetMatch[2] || explicitTargetMatch[3] || '').trim(),
+                appendPrompt
             }
         }
 
         const atUserId = this.getAtUserId(e)
-        if (atUserId && args.startsWith('@')) {
-            const rest = args.replace(/^@\S+\s*/, '').trim()
+        if (atUserId && nameArgs.startsWith('@')) {
+            const rest = nameArgs.replace(/^@\S+\s*/, '').trim()
             const nameMatch = rest.match(/^(?:昵称|名字|name|nickname)\s*[=:：]\s*(.+)$/i)
-            return { targetUserId: atUserId, manualNickname: (nameMatch?.[1] || rest).trim() }
+            return { targetUserId: atUserId, manualNickname: (nameMatch?.[1] || rest).trim(), appendPrompt }
         }
 
-        const targetMatch = args.match(/^@?(\d{5,12})(?:\s+(.+))?$/)
+        const targetMatch = nameArgs.match(/^@?(\d{5,12})(?:\s+(.+))?$/)
         if (targetMatch) {
             return {
                 targetUserId: targetMatch[1],
-                manualNickname: String(targetMatch[2] || '').trim()
+                manualNickname: String(targetMatch[2] || '').trim(),
+                appendPrompt
             }
         }
 
-        return { targetUserId: '', manualNickname: args }
+        return { targetUserId: '', manualNickname: nameArgs, appendPrompt }
+    }
+
+    buildPresetPrompt(prompt, appendPrompt = '') {
+        const basePrompt = String(prompt || '').trim()
+        const extraPrompt = String(appendPrompt || '').trim()
+        if (!extraPrompt) return basePrompt
+        if (!basePrompt) return extraPrompt
+        return `${basePrompt}\n\n用户追加要求：\n${extraPrompt}`
     }
 
     async renderPromptVariables(e, prompt, targetUserId = '', manualNickname = '') {
@@ -310,7 +360,7 @@ export class banana extends plugin {
         }
 
         const cmd = match[1]
-        const { targetUserId, manualNickname } = this.parsePresetArgs(e, match[2])
+        const { targetUserId, manualNickname, appendPrompt } = this.parsePresetArgs(e, match[2])
         const preset = BananaService.getPresetByCmd(cmd)
 
         if (!preset) {
@@ -324,7 +374,8 @@ export class banana extends plugin {
 
         enqueueJob(e, `#${presetCmd}`, async () => {
             const fullModel = this.config.default_model || 'gemini-3-pro-image-preview'
-            await this.performGeneration(e, fullModel, preset.prompt, startTime, false, `#${presetCmd}`, targetUserId, manualNickname)
+            const prompt = this.buildPresetPrompt(preset.prompt, appendPrompt)
+            await this.performGeneration(e, fullModel, prompt, startTime, false, `#${presetCmd}`, targetUserId, manualNickname)
         }, maxQueue, maxConcurrent)
     }
 
@@ -652,6 +703,36 @@ export class banana extends plugin {
             imageUrls = unique.slice(0, 3)
         }
 
+        let currentApiKey = null
+
+        try {
+            currentApiKey = BananaService.getNextApiKey()
+        } catch (keyError) {
+            await e.reply(`❌ ${keyError.message}`)
+            return
+        }
+
+        const apiUrl = this.config.api_url
+        if (!apiUrl) {
+            await e.reply('❌ 请先配置 API 服务地址')
+            return
+        }
+
+        const imageProtocol = String(this.config.image_api_protocol || 'chat_completions').trim()
+        if (imageProtocol === 'openai_images') {
+            await this.performOpenAIImagesGeneration(e, {
+                apiUrl,
+                apiKey: currentApiKey,
+                model,
+                prompt,
+                imageUrls,
+                startTime,
+                presetName,
+                quoteReply
+            })
+            return
+        }
+
         // 构建消息内容
         let content = []
 
@@ -691,21 +772,6 @@ export class banana extends plugin {
             model: model,
             messages: [{ role: 'user', content: content }],
             stream: useStream
-        }
-
-        let currentApiKey = null
-
-        try {
-            currentApiKey = BananaService.getNextApiKey()
-        } catch (keyError) {
-            await e.reply(`❌ ${keyError.message}`)
-            return
-        }
-
-        const apiUrl = this.config.api_url
-        if (!apiUrl) {
-            await e.reply('❌ 请先配置 API 服务地址')
-            return
         }
 
         const urlObj = new URL(apiUrl)
@@ -778,6 +844,98 @@ export class banana extends plugin {
             }
 
             await e.reply(errorMsg, quoteReply)
+        }
+    }
+
+    async performOpenAIImagesGeneration(e, { apiUrl, apiKey, model, prompt, imageUrls, startTime, presetName, quoteReply }) {
+        const hasImages = Array.isArray(imageUrls) && imageUrls.length > 0
+        const endpoint = hasImages ? 'edits' : 'generations'
+        const requestUrl = getImagesApiUrl(apiUrl, endpoint)
+        const responseFormat = this.config.image_response_format || 'url'
+        const headers = {
+            'Authorization': `Bearer ${apiKey}`,
+            'User-Agent': 'Yunzai-Banana-Plugin/1.0.0',
+            'Accept': '*/*',
+            'Connection': 'keep-alive'
+        }
+
+        let body
+        if (hasImages) {
+            const base64Images = await BananaService.convertImagesToBase64(imageUrls)
+            const files = []
+            for (let i = 0; i < base64Images.length; i++) {
+                const parsed = this.parseDataImageUrl(base64Images[i])
+                if (!parsed?.isBase64) continue
+                const ext = parsed.mime.split('/')[1]?.replace('jpeg', 'jpg') || 'png'
+                files.push({
+                    name: 'image',
+                    filename: `image_${i + 1}.${ext}`,
+                    contentType: parsed.mime,
+                    buffer: Buffer.from(parsed.data, 'base64')
+                })
+            }
+            if (files.length === 0) throw new Error('图片处理失败：无法构建 edits 请求')
+
+            const multipart = buildMultipartBody({
+                model,
+                prompt: prompt || '编辑这张图片',
+                n: 1,
+                response_format: responseFormat
+            }, files)
+            body = multipart.body
+            headers['Content-Type'] = `multipart/form-data; boundary=${multipart.boundary}`
+            headers['Content-Length'] = body.length
+        } else {
+            headers['Content-Type'] = 'application/json'
+            body = JSON.stringify({
+                model,
+                prompt: prompt || '生成一个有趣的图片',
+                n: 1,
+                response_format: responseFormat
+            })
+        }
+
+        logger.debug(`[Banana] Images API 请求 - 地址: ${requestUrl}`)
+        logger.debug(`[Banana] Images API 请求 - 端点: /v1/images/${endpoint}`)
+        logger.debug(`[Banana] Images API 请求 - 模型: ${model}`)
+        logger.debug(`[Banana] Images API 请求 - response_format: ${responseFormat}`)
+
+        try {
+            const result = await this.nonStreamRequest(requestUrl, {
+                method: 'POST',
+                headers,
+                body
+            })
+
+            if (!result.success) throw new Error(result.error)
+
+            BananaService.recordKeyUsage(apiKey, true)
+            const resultImageUrls = result.imageUrls || []
+            const resultVideoUrls = result.videoUrls || []
+
+            if (resultImageUrls.length > 0) {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+                const countText = resultImageUrls.length > 1 ? `\n📷 共 ${resultImageUrls.length} 张图片` : ''
+                const presetText = presetName ? `\n🎯 预设: ${presetName}` : ''
+                const replyMsg = resultImageUrls.map(url => segment.image(url))
+                replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}\n🔌 协议: OpenAI Images / ${endpoint}${countText}`)
+                await e.reply(replyMsg, quoteReply)
+            } else if (resultVideoUrls.length > 0) {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+                const replyMsg = []
+                for (const url of resultVideoUrls.slice(0, 3)) {
+                    const seg = this.toVideoSegment(url)
+                    if (seg) replyMsg.push(seg)
+                }
+                replyMsg.push(`\n✅ 生成完成（${elapsed}s）\n🤖 模型: ${model}\n🔌 协议: OpenAI Images / ${endpoint}`)
+                await e.reply(replyMsg, quoteReply)
+            } else {
+                throw new Error('未找到生成的内容')
+            }
+        } catch (err) {
+            BananaService.recordKeyUsage(apiKey, false, err?.message)
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+            await e.reply(`❌ 生成失败（${elapsed}s）\n错误: ${err.message}`, quoteReply)
         }
     }
 
@@ -873,15 +1031,12 @@ export class banana extends plugin {
         logger.debug(`[Banana] 视频 API 请求 - 地址: ${apiUrl}`)
         logger.debug(`[Banana] 视频 API 请求 - 模型: ${model}`)
         logger.debug(`[Banana] 视频 API 请求 - 模式: ${useStream ? '流式' : '非流式'}`)
-        // 打印真实入参结构（会省略 base64 的大段内容）
-        logger.debug(`[Banana] 视频 API 请求 - 入参(省略): ${JSON.stringify(omitBase64ForLog(payload, 80))}`)
 
         try {
             const result = await this.streamRequest(apiUrl, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify(payload),
-                logStream: true
+                body: JSON.stringify(payload)
             })
 
             if (!result.success) throw new Error(result.error)
@@ -924,16 +1079,6 @@ export class banana extends plugin {
             const urlObj = new URL(url)
             const isHttps = urlObj.protocol === 'https:'
             const httpModule = isHttps ? https : http
-            const logStream = Boolean(options?.logStream)
-            const logPrefix = "[Banana][Stream]"
-
-            const truncateForLog = (text, max = 240) => {
-                const s = String(text ?? "")
-                    .replace(/\r?\n/g, "\\n")
-                    .trim()
-                if (s.length <= max) return s
-                return `${s.slice(0, max)}…(${s.length})`
-            }
 
             const requestOptions = {
                 hostname: urlObj.hostname,
@@ -952,6 +1097,9 @@ export class banana extends plugin {
                         const errorData = Buffer.concat(chunks).toString()
                         resolve({ success: false, error: `HTTP ${res.statusCode}: ${errorData}` })
                     })
+                    res.on('error', err => {
+                        resolve({ success: false, error: `HTTP ${res.statusCode} 响应错误: ${err.message}` })
+                    })
                     return
                 }
 
@@ -967,14 +1115,6 @@ export class banana extends plugin {
                     const choice = jsonData.choices?.[0]
                     const delta = choice?.delta
                     const message = choice?.message
-
-                    if (logStream) {
-                        const content = delta?.content ?? message?.content
-                        if (typeof content === "string" && content.trim()) {
-                            logger.debug(`${logPrefix} ${truncateForLog(content)}`)
-                        }
-                    }
-
                     if (delta?.reasoning_content) {
                         const reasoning = delta.reasoning_content
                         if (typeof reasoning === 'string' && (reasoning.includes('❌') || reasoning.includes('生成失败')))
@@ -994,10 +1134,9 @@ export class banana extends plugin {
 
                 const processDataLine = dataLine => {
                     const data = String(dataLine || '').trim()
-                    if (!data) return
+                    if (!data) return 'empty'
 
                     if (data === '[DONE]') {
-                        if (logStream) logger.debug(`${logPrefix} [DONE]`)
                         if (finalVideoUrls.length > 0 || finalImageUrls.length > 0)
                             resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
                         else if (errorMessages.length > 0)
@@ -1008,7 +1147,6 @@ export class banana extends plugin {
 
                     // 标准 SSE: data: {...}
                     try {
-                        if (logStream) logger.debug(`${logPrefix} data: ${truncateForLog(data)}`)
                         processJsonChunk(JSON.parse(data))
                         return 'ok'
                     } catch {}
@@ -1084,11 +1222,13 @@ export class banana extends plugin {
             })
 
             req.on('timeout', () => {
+                req.destroy(new Error(`request timeout ${requestOptions.timeout}ms`))
                 resolve({ success: false, error: `请求超时 (${requestOptions.timeout}ms)` })
             })
 
             if (options.body) {
-                req.write(options.body, 'utf8')
+                if (Buffer.isBuffer(options.body)) req.write(options.body)
+                else req.write(options.body, 'utf8')
             }
 
             req.end()
@@ -1217,6 +1357,9 @@ export class banana extends plugin {
                         const errorData = Buffer.concat(chunks).toString()
                         resolve({ success: false, error: `HTTP ${res.statusCode}: ${errorData}` })
                     })
+                    res.on('error', err => {
+                        resolve({ success: false, error: `HTTP ${res.statusCode} 响应错误: ${err.message}` })
+                    })
                     return
                 }
 
@@ -1235,6 +1378,14 @@ export class banana extends plugin {
                             finalImageUrls = this.extractImagesFromData(jsonData.choices[0].message, finalImageUrls)
                             finalVideoUrls = this.extractVideosFromData(jsonData.choices[0].message, finalVideoUrls)
                         }
+                        if (Array.isArray(jsonData.data)) {
+                            for (const item of jsonData.data) {
+                                if (typeof item?.url === 'string') finalImageUrls.push(item.url)
+                                if (typeof item?.b64_json === 'string') finalImageUrls.push(`data:image/png;base64,${item.b64_json}`)
+                            }
+                        }
+                        finalImageUrls = Array.from(new Set(finalImageUrls.filter(Boolean)))
+                        finalVideoUrls = Array.from(new Set(finalVideoUrls.filter(Boolean)))
 
                         if (finalVideoUrls.length > 0 || finalImageUrls.length > 0) {
                             resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
@@ -1259,11 +1410,13 @@ export class banana extends plugin {
             })
 
             req.on('timeout', () => {
+                req.destroy(new Error(`request timeout ${requestOptions.timeout}ms`))
                 resolve({ success: false, error: `请求超时 (${requestOptions.timeout}ms)` })
             })
 
             if (options.body) {
-                req.write(options.body, 'utf8')
+                if (Buffer.isBuffer(options.body)) req.write(options.body)
+                else req.write(options.body, 'utf8')
             }
 
             req.end()

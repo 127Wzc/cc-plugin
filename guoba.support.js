@@ -315,6 +315,32 @@ export function supportGuoba() {
                     }
                 },
                 {
+                    field: 'Banana.image_api_protocol',
+                    label: '作图协议',
+                    helpMessage: '全局图片生成协议。OpenAI Images API 会根据是否有参考图自动切换 generations/edits',
+                    bottomHelpMessage: '默认 chat_completions 保持现有行为；openai_images 纯文本走 /v1/images/generations，带图走 /v1/images/edits',
+                    component: 'Select',
+                    componentProps: {
+                        options: [
+                            { label: 'Chat Completions (/v1/chat/completions)', value: 'chat_completions' },
+                            { label: 'OpenAI Images API (/v1/images/generations|edits)', value: 'openai_images' }
+                        ]
+                    }
+                },
+                {
+                    field: 'Banana.image_response_format',
+                    label: 'Images响应格式',
+                    helpMessage: 'OpenAI Images API 的 response_format，后端支持 url 时可减少超大 base64 响应',
+                    bottomHelpMessage: '如果后端不支持 url，可能仍返回 b64_json 或报错；chat_completions 协议不使用此项',
+                    component: 'Select',
+                    componentProps: {
+                        options: [
+                            { label: 'url（推荐，后端需支持）', value: 'url' },
+                            { label: 'b64_json', value: 'b64_json' }
+                        ]
+                    }
+                },
+                {
                     label: '功能设置',
                     component: 'Divider'
                 },
@@ -409,7 +435,7 @@ export function supportGuoba() {
                     field: 'Banana.presets',
                     label: '预设列表',
                     helpMessage: '配置预设关键字和提示词',
-                    bottomHelpMessage: '每个预设包含: cmd(关键字), name(名称), desc(描述), prompt(提示词)。可用 {{nickname}}/{{qq}}/{{group_name}}/{{sender_nickname}} 等变量；命令后可跟手动昵称覆盖，如 #预设 昵称 或 #预设 name=昵称',
+                    bottomHelpMessage: '每个预设包含: cmd(关键字), name(名称), desc(描述), prompt(提示词)。可用 {{nickname}}/{{qq}}/{{group_name}}/{{sender_nickname}} 等变量；命令后可跟手动昵称覆盖，如 #预设 昵称 或 #预设 name=昵称；可用 -p 追加要求',
                     component: 'GSubForm',
                     componentProps: {
                         multiple: true,

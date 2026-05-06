@@ -6,6 +6,14 @@ api_url: "https://hw-newapi.559558.xyz/v1/chat/completions"
 # 默认模型
 default_model: "gemini-3-pro-image-preview"
 
+# 图片生成协议
+# chat_completions: 使用 /v1/chat/completions（现有兼容模式）
+# openai_images: 使用 OpenAI Images API，纯文本走 /v1/images/generations，带图走 /v1/images/edits
+image_api_protocol: "chat_completions"
+
+# OpenAI Images API 响应格式（后端支持时可设为 url，减少大 base64 响应）
+image_response_format: "url"
+
 # 默认视频模型（用于 #cc视频；OpenAI 标准协议，必须提供 1 张参考图）
 # 留空则回退到 default_model
 default_video_model: ""
@@ -32,6 +40,7 @@ daily_fail_threshold: 10
 # 显示名优先级: 手动名称 > 群名片 > QQ昵称 > QQ号
 # 预设命令可用 #预设 昵称、#预设 @用户 昵称、#预设 QQ号 昵称 覆盖/指定占位符和头像兜底目标
 # 昵称为纯数字等易混淆内容时，可显式写 #预设 name=12345 或 #预设 qq=123456 name=12345
+# 预设后可用 -p 追加自定义提示词，例如 #手办化 -p 背景改成便利店夜景
 presets:
   - cmd: "手办化"
     name: "手办化"
