@@ -1,0 +1,46 @@
+{{extend defaultLayout}}
+
+{{block 'css'}}
+<link rel="stylesheet" type="text/css" href="{{_res_path}}/favorability/index.css" />
+{{/block}}
+
+{{block 'main'}}
+<div class="favor-head">
+  <div class="title">{{title}}</div>
+  {{if subTitle}}
+  {{if mode === 'pair'}}
+  <div class="sub-title">「 {{subTitle}} 」的双向好感度</div>
+  {{else}}
+  <div class="sub-title">「 {{subTitle}} 」的好感度排行榜</div>
+  {{/if}}
+  {{/if}}
+</div>
+
+{{if mode === 'pair'}}
+<div class="pair-board">
+  {{each pair item}}
+  <div class="favor-row {{item.scoreClass}}">
+    <div class="rank-mark"></div>
+    <div class="name">{{item.fromName}} → {{item.toName}}</div>
+    <div class="heart">{{item.heart}}</div>
+    <div class="score">{{item.scoreText}}</div>
+  </div>
+  {{/each}}
+</div>
+{{/if}}
+
+{{if mode === 'ranking'}}
+<div class="rank-board">
+  {{each ranking item}}
+  <div class="favor-row {{item.scoreClass}}">
+    <div class="rank-mark">{{item.rankText}}</div>
+    <div class="name">{{item.name}}</div>
+    <div class="heart">{{item.heart}}</div>
+    <div class="score">{{item.scoreText}}</div>
+  </div>
+  {{/each}}
+</div>
+
+<div class="footer-note">持续互动可以增加好感度哦~</div>
+{{/if}}
+{{/block}}

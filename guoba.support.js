@@ -596,6 +596,153 @@ export function supportGuoba() {
                         min: 1000,
                         step: 1000
                     }
+                },
+
+                // ==================== 发言达标点赞 ====================
+                {
+                    label: '发言达标自动点赞',
+                    component: 'SOFT_GROUP_BEGIN'
+                },
+                {
+                    field: 'speakThumb.enable',
+                    label: '启用发言达标点赞',
+                    bottomHelpMessage: '仅白名单群内生效；用户当天发言达标后只尝试一次点赞。',
+                    component: 'Switch'
+                },
+                {
+                    field: 'speakThumb.whitelistGroups',
+                    label: '白名单群号',
+                    bottomHelpMessage: '仅这些群会触发；留空则不触发。',
+                    component: 'GTags',
+                    componentProps: {
+                        placeholder: '输入群号后回车添加',
+                        allowAdd: true,
+                        allowDel: true
+                    }
+                },
+                {
+                    field: 'speakThumb.threshold',
+                    label: '当天触发条数',
+                    bottomHelpMessage: '用户当天在白名单群内累计发言达到该条数后尝试点赞一次。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 1,
+                        max: 100000,
+                        placeholder: '100'
+                    }
+                },
+                {
+                    field: 'speakThumb.likeTimes',
+                    label: '点赞次数',
+                    bottomHelpMessage: '每次资料卡点赞数量，实际上限取决于协议端；内部限制 1-20。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 1,
+                        max: 20,
+                        placeholder: '1'
+                    }
+                },
+                {
+                    field: 'speakThumb.feedbackMode',
+                    label: '成功反馈方式',
+                    bottomHelpMessage: '点赞成功后的反馈；失败和已点过始终静默。',
+                    component: 'Select',
+                    componentProps: {
+                        options: [
+                            { label: '静默', value: 'silent' },
+                            { label: '文字提示并撤回', value: 'text' },
+                            { label: '表情回应原消息', value: 'emoji_like' }
+                        ]
+                    }
+                },
+                {
+                    field: 'speakThumb.emojiLikeId',
+                    label: '表情回应 ID',
+                    bottomHelpMessage: '成功反馈方式为“表情回应原消息”时使用；不同协议端支持的 ID 可能不同。',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: '66'
+                    }
+                },
+                {
+                    field: 'speakThumb.successMessage',
+                    label: '成功提示',
+                    bottomHelpMessage: '支持 {{name}} / {{user_id}} / {{count}}；仅“文字提示并撤回”模式发送。',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: '发言活跃达标，已给 {{name}} 点赞啦~'
+                    }
+                },
+                {
+                    field: 'speakThumb.successRecallSeconds',
+                    label: '提示撤回秒数',
+                    bottomHelpMessage: '仅文字提示模式生效；0 表示不撤回。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 0,
+                        max: 120,
+                        placeholder: '3'
+                    }
+                },
+                {
+                    field: 'speakThumb.skipBot',
+                    label: '忽略机器人自身发言',
+                    bottomHelpMessage: '开启后不统计机器人自己在群内的消息。',
+                    component: 'Switch'
+                },
+
+                // ==================== 群友好感度 ====================
+                {
+                    label: '群友好感度',
+                    component: 'SOFT_GROUP_BEGIN'
+                },
+                {
+                    field: 'Favorability.enable',
+                    label: '启用群友好感度',
+                    bottomHelpMessage: '关闭后不再自动记录普通消息产生的好感度；查询命令仍可读取已有数据。',
+                    component: 'Switch'
+                },
+                {
+                    field: 'Favorability.whitelistGroups',
+                    label: '白名单群号',
+                    bottomHelpMessage: '仅这些群会自动记录普通消息好感度；留空则不自动记录任何群。',
+                    component: 'GTags',
+                    componentProps: {
+                        placeholder: '输入群号后回车添加',
+                        allowAdd: true,
+                        allowDel: true
+                    }
+                },
+                {
+                    field: 'Favorability.flushIntervalSeconds',
+                    label: '缓存落盘间隔',
+                    helpMessage: '单位：秒',
+                    bottomHelpMessage: '值越大 IO 越少，但异常退出时可能丢失最近一小段缓存数据；最小按 10 秒处理。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 10,
+                        max: 3600,
+                        step: 10,
+                        placeholder: '60'
+                    }
+                },
+                {
+                    field: 'Favorability.dailyDecayEnabled',
+                    label: '启用每日衰减',
+                    bottomHelpMessage: '开启后每天维护任务会让正负好感度都向 0 靠近。',
+                    component: 'Switch'
+                },
+                {
+                    field: 'Favorability.dailyDecay',
+                    label: '每日衰减值',
+                    bottomHelpMessage: '正数会减少，负数会恢复；衰减到 0 后会删除该关系记录。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 0,
+                        max: 100,
+                        step: 1,
+                        placeholder: '1'
+                    }
                 }
             ],
 
@@ -608,7 +755,9 @@ export function supportGuoba() {
                     ImgTag: imgTag,
                     Banana: banana,
                     qqConfig: Config.getDefOrConfig('qqConfig'),
-                    Coze: Config.getDefOrConfig('Coze')
+                    Coze: Config.getDefOrConfig('Coze'),
+                    speakThumb: Config.getDefOrConfig('speakThumb'),
+                    Favorability: Config.getDefOrConfig('Favorability')
                 }
             },
 
@@ -620,7 +769,7 @@ export function supportGuoba() {
                     const configName = parts[0]  // ImgTag 或 qqConfig 或 Banana
                     const fieldPath = parts.slice(1).join('.')  // api_url 或 ai.type
 
-                    if (configName === 'ImgTag' || configName === 'qqConfig' || configName === 'Banana' || configName === 'Coze') {
+                    if (configName === 'ImgTag' || configName === 'qqConfig' || configName === 'Banana' || configName === 'Coze' || configName === 'speakThumb' || configName === 'Favorability') {
                         if (configName === 'ImgTag' && fieldPath === 'user_keys') {
                             const existing = Config.getConfig('ImgTag')?.user_keys || []
                             const existingMap = new Map(existing.map(r => [String(r?.user_id), r]))

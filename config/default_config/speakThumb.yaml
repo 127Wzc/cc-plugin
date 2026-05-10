@@ -1,0 +1,18 @@
+# 发言达标自动点赞
+enable: false
+# 仅在这些群内生效；留空则不触发任何自动点赞
+whitelistGroups: []
+# 用户在白名单群内累计发言达到该条数后触发一次点赞
+threshold: 100
+# 每次点赞数量，具体上限取决于协议端；内部会限制在 1-20
+likeTimes: 1
+# 点赞成功后的反馈模式：silent 静默 | text 文字提示 | emoji_like 给触发消息添加表情回应
+feedbackMode: "silent"
+# feedbackMode 为 emoji_like 时使用的表情 ID
+emojiLikeId: "66"
+# 点赞成功后的回复；支持 {{name}} / {{user_id}} / {{count}}
+successMessage: "发言活跃达标，已给 {{name}} 点赞啦~"
+# feedbackMode 为 text 时，成功提示多少秒后撤回；0 表示不撤回
+successRecallSeconds: 3
+# 是否忽略机器人自身消息
+skipBot: true

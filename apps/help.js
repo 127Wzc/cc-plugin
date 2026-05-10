@@ -74,7 +74,11 @@ export class help extends plugin {
             {
                 group: '👆 互动功能',
                 list: [
-                    { title: '戳一戳机器人', desc: '随机互动回复' }
+                    { title: '戳一戳机器人', desc: '随机互动回复' },
+                    { title: '#好感度 @群友', desc: '查看双向好感度' },
+                    { title: '#谁在意我', desc: '查看对你有好感的人' },
+                    { title: '#我在意谁', desc: '查看你在意的人' },
+                    { title: '#好感度白名单', desc: '查看/管理启用群' }
                 ]
             },
             // ===== 管理命令 (放在最后) =====
