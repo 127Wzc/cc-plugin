@@ -399,6 +399,9 @@ export class Favorability extends plugin {
     if (/^#?好感度.*$/.test(msg) || /^#?(谁在意我|喜欢我的人|我在意谁|我喜欢的人)$/.test(msg)) {
       return false
     }
+    if (this.isCommandMessage(e)) {
+      return false
+    }
 
     const groupId = String(e.group_id || "")
     const currentSender = String(e.user_id || "")
@@ -445,6 +448,23 @@ export class Favorability extends plugin {
     }
 
     return false
+  }
+
+  isCommandMessage(e) {
+    const text = this.getPlainText(e)
+    return /^[#/]/.test(text)
+  }
+
+  getPlainText(e) {
+    if (Array.isArray(e.message)) {
+      return e.message
+        .filter(segment => segment.type === "text")
+        .map(segment => String(segment.text || ""))
+        .join("")
+        .trim()
+    }
+
+    return String(e.msg || e.raw_message || "").trim()
   }
 
   async getTargetUsers(e, currentSender) {
