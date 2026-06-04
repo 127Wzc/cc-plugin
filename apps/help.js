@@ -87,8 +87,6 @@ export class help extends plugin {
                 list: [
                     { title: '#cc切换图片模型<模型名>', desc: '切换生图默认模型（default/默认/清空 可重置）' },
                     { title: '#cc切换视频模型<模型名>', desc: '切换视频默认模型（follow/跟随/default 可恢复跟随图片）' },
-                    { title: '#大香蕉添加key', desc: '添加API密钥' },
-                    { title: '#大香蕉key列表', desc: '密钥状态' },
                     { title: '#大香蕉调试', desc: '调试信息' }
                 ]
             },

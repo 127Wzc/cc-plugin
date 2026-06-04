@@ -1,66 +1,37 @@
 import Config from './components/Cfg.js'
 import lodash from 'lodash'
-import BananaService from './model/BananaService.js'
 
 const MASKED_KEY_PLACEHOLDER = '******'
 
-function getBananaKeysForGuoba() {
-    const keysConfig = BananaService.getKeysConfig()
-    return (keysConfig.keys || []).map(row => ({
-        name: row?.name || '',
-        api_key: row?.value || '',
-        enabled: row?.status !== 'disabled',
-        notes: row?.notes || ''
-    }))
+function normalizeBananaApiKeys(rawKeys) {
+    return (Array.isArray(rawKeys) ? rawKeys : [])
+        .map(row => {
+            if (typeof row === 'string') return { api_key: row }
+            if (row && typeof row === 'object') return { api_key: row.api_key || row.value || row.key || '' }
+            return { api_key: '' }
+        })
+        .filter(row => String(row.api_key || '').trim())
 }
 
-function mergeBananaKeys(nextList) {
-    const keysConfig = BananaService.getKeysConfig()
-    const existingKeys = Array.isArray(keysConfig.keys) ? keysConfig.keys : []
-    const now = new Date().toISOString()
-    const today = new Date().toDateString()
-
+function mergeBananaApiKeys(nextList) {
+    const existingKeys = normalizeBananaApiKeys(Config.getConfig('Banana')?.api_keys || Config.getDefOrConfig('Banana')?.api_keys)
     const keys = (Array.isArray(nextList) ? nextList : [])
         .map((row, index) => {
             const prev = existingKeys[index] || {}
             let apiKey = row?.api_key
 
             if (apiKey === MASKED_KEY_PLACEHOLDER || apiKey === undefined || apiKey === null) {
-                apiKey = prev?.value || ''
+                apiKey = prev?.api_key || ''
             }
 
             apiKey = String(apiKey || '').trim()
             if (!apiKey) return null
 
-            return {
-                id: prev?.id || `key_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-                value: apiKey,
-                name: String(row?.name || prev?.name || `密钥${index + 1}`).trim(),
-                status: row?.enabled === false ? 'disabled' : 'active',
-                addedAt: prev?.addedAt || now,
-                addedBy: prev?.addedBy || null,
-                lastUsed: prev?.lastUsed || null,
-                usageCount: Number(prev?.usageCount) || 0,
-                todayUsage: Number(prev?.todayUsage) || 0,
-                todayDate: prev?.todayDate || today,
-                errorCount: Number(prev?.errorCount) || 0,
-                todayFailed: Number(prev?.todayFailed) || 0,
-                todayFailedDate: prev?.todayFailedDate || today,
-                notes: String(row?.notes || prev?.notes || '').trim()
-            }
+            return { api_key: apiKey }
         })
         .filter(Boolean)
 
-    const currentKeyId = existingKeys[keysConfig.currentIndex]?.id
-    let currentIndex = keys.findIndex(row => row.id === currentKeyId && row.status === 'active')
-    if (currentIndex < 0) currentIndex = keys.findIndex(row => row.status === 'active')
-    if (currentIndex < 0) currentIndex = 0
-
-    BananaService.saveKeysConfig({
-        ...keysConfig,
-        keys,
-        currentIndex
-    })
+    Config.modify('Banana', 'api_keys', keys)
 }
 
 // 支持锅巴
@@ -287,6 +258,27 @@ export function supportGuoba() {
                     }
                 },
                 {
+                    field: 'Banana.api_keys',
+                    label: 'API Key 列表',
+                    helpMessage: '配置 Banana 绘图使用的 API Key，可添加多个用于失败重试时自动轮换',
+                    bottomHelpMessage: '只做轮换使用，不会因异常标记、禁用或清理 key',
+                    component: 'GSubForm',
+                    componentProps: {
+                        multiple: true,
+                        schemas: [
+                            {
+                                field: 'api_key',
+                                label: 'API Key',
+                                component: 'InputPassword',
+                                required: true,
+                                componentProps: {
+                                    placeholder: '输入后保存（不回显）'
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
                     field: 'Banana.default_model',
                     label: '默认模型',
                     helpMessage: '生成图片时使用的默认模型，可手动输入自定义模型名称',
@@ -352,6 +344,13 @@ export function supportGuoba() {
                     component: 'Switch'
                 },
                 {
+                    field: 'Banana.debug_response_log',
+                    label: '完整响应日志',
+                    helpMessage: '调试时打印画图接口的完整响应内容',
+                    bottomHelpMessage: '可能包含超大 base64 或流式 chunk，建议仅本地排查时临时开启',
+                    component: 'Switch'
+                },
+                {
                     field: 'Banana.max_concurrent',
                     label: '最大并发数',
                     helpMessage: '同时执行的任务数量',
@@ -364,6 +363,18 @@ export function supportGuoba() {
                     }
                 },
                 {
+                    field: 'Banana.retry_count',
+                    label: '失败重试次数',
+                    helpMessage: '单个生成任务失败后的自动重试次数',
+                    bottomHelpMessage: '默认 3；每次重试会重新轮换可用 API Key。内容政策等明确不可重试错误会直接失败',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 0,
+                        max: 10,
+                        placeholder: '3'
+                    }
+                },
+                {
                     field: 'Banana.max_queue',
                     label: '最大队列',
                     helpMessage: '最大等待队列长度',
@@ -373,58 +384,6 @@ export function supportGuoba() {
                         min: 1,
                         max: 20,
                         placeholder: '5'
-                    }
-                },
-                {
-                    field: 'Banana.disable_keys_on_error',
-                    label: '错误时禁用密钥',
-                    helpMessage: '密钥失败次数过多时自动禁用',
-                    component: 'Switch'
-                },
-                {
-                    label: '密钥管理',
-                    component: 'Divider'
-                },
-                {
-                    field: 'Banana.keys',
-                    label: 'API 密钥列表',
-                    helpMessage: '配置 Banana 使用的 API 密钥列表',
-                    bottomHelpMessage: '已保存的密钥不会在面板回显；如需修改请重新输入覆盖。支持启用/禁用和备注。',
-                    component: 'GSubForm',
-                    componentProps: {
-                        multiple: true,
-                        schemas: [
-                            {
-                                field: 'name',
-                                label: '名称',
-                                component: 'Input',
-                                componentProps: {
-                                    placeholder: '例如：主线路 key'
-                                }
-                            },
-                            {
-                                field: 'api_key',
-                                label: 'API 密钥',
-                                component: 'InputPassword',
-                                required: true,
-                                componentProps: {
-                                    placeholder: '输入后保存（不回显）'
-                                }
-                            },
-                            {
-                                field: 'enabled',
-                                label: '启用',
-                                component: 'Switch'
-                            },
-                            {
-                                field: 'notes',
-                                label: '备注',
-                                component: 'Input',
-                                componentProps: {
-                                    placeholder: '可选'
-                                }
-                            }
-                        ]
                     }
                 },
                 {
@@ -750,7 +709,7 @@ export function supportGuoba() {
             getConfigData() {
                 const imgTag = lodash.cloneDeep(Config.getDefOrConfig('ImgTag'))
                 const banana = lodash.cloneDeep(Config.getDefOrConfig('Banana'))
-                banana.keys = getBananaKeysForGuoba()
+                banana.api_keys = normalizeBananaApiKeys(banana.api_keys)
                 return {
                     ImgTag: imgTag,
                     Banana: banana,
@@ -795,8 +754,8 @@ export function supportGuoba() {
                             }
 
                             Config.modify('ImgTag', 'user_keys', Array.from(mergedMap.values()))
-                        } else if (configName === 'Banana' && fieldPath === 'keys') {
-                            mergeBananaKeys(value)
+                        } else if (configName === 'Banana' && fieldPath === 'api_keys') {
+                            mergeBananaApiKeys(value)
                         } else {
                             Config.modify(configName, fieldPath, value)
                         }

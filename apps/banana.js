@@ -169,27 +169,12 @@ export class banana extends plugin {
                     fnc: 'listModels'
                 },
                 {
-                    reg: '^#大香蕉添加key.*',
-                    fnc: 'addApiKeys'
-                },
-                {
-                    reg: '^#大香蕉key列表$',
-                    fnc: 'listApiKeys'
-                },
-                {
                     reg: '^#大香蕉调试$',
                     fnc: 'debugBanana'
                 },
                 {
                     reg: '^#大香蕉预设列表$',
                     fnc: 'listPresets'
-                }
-            ],
-            task: [
-                {
-                    name: 'Banana密钥重置',
-                    cron: '8 0 * * *',
-                    fnc: 'resetDisabledKeys'
                 }
             ]
         })
@@ -326,6 +311,22 @@ export class banana extends plugin {
         return `${basePrompt}\n\n用户追加要求：\n${extraPrompt}`
     }
 
+    getRetryCount() {
+        const value = Number(this.config.retry_count ?? 3)
+        if (!Number.isFinite(value)) return 3
+        return Math.max(0, Math.min(10, Math.floor(value)))
+    }
+
+    shouldRetryError(err) {
+        const message = String(err?.message || err || '')
+        if (!message) return true
+        return !/(内容政策|content[_-]?policy|policy violation|提示.*违反|没有可用的API密钥|没有活跃的API密钥)/i.test(message)
+    }
+
+    formatRetrySuffix(attemptsUsed) {
+        return attemptsUsed > 1 ? `\n已尝试: ${attemptsUsed} 次` : ''
+    }
+
     async renderPromptVariables(e, prompt, targetUserId = '', manualNickname = '') {
         if (typeof prompt !== 'string' || !PROMPT_VARIABLE_PATTERN.test(prompt)) return prompt
 
@@ -422,10 +423,33 @@ export class banana extends plugin {
                 : url.trim()
             if (!normalized) return
             if (normalized.startsWith('data:image/')) {
-                if (!imageUrls.some(item => item.startsWith('data:image/'))) imageUrls.push(normalized)
+                if (!imageUrls.includes(normalized)) imageUrls.push(normalized)
             } else if (normalized.startsWith('http') && !imageUrls.includes(normalized)) {
                 imageUrls.push(normalized)
             }
+        }
+
+        const addBase64Image = value => {
+            if (!value || typeof value !== 'string') return
+            const trimmed = value.trim()
+            if (!trimmed) return
+
+            if (trimmed.startsWith('data:image/')) {
+                addImageUrl(trimmed)
+                return
+            }
+
+            const compact = trimmed.replace(/\s+/g, '')
+            const mime = this.inferImageMimeFromBase64(compact)
+            if (!mime) return
+
+            addImageUrl(`data:${mime};base64,${compact}`)
+        }
+
+        const addStringImage = value => {
+            if (typeof value !== 'string') return
+            addImageUrl(value)
+            addBase64Image(value)
         }
 
         // OpenAI 标准：content 可能是数组（多模态分段）
@@ -433,13 +457,37 @@ export class banana extends plugin {
             if (!Array.isArray(parts)) return
             for (const part of parts) {
                 if (!part || typeof part !== 'object') continue
-                if (part.type === 'image_url' && part.image_url?.url) {
+                if (part.type === 'image_url' || part.type === 'output_image' || part.type === 'input_image') {
+                    if (typeof part.image_url === 'string') {
+                        addImageUrl(part.image_url)
+                        continue
+                    }
+                    if (part.image_url?.url) {
+                        addImageUrl(part.image_url.url)
+                        continue
+                    }
+                    if (typeof part.url === 'string') {
+                        addImageUrl(part.url)
+                        continue
+                    }
+                }
+                if (typeof part.image_url === 'string') {
+                    addImageUrl(part.image_url)
+                    continue
+                }
+                if (part.image_url?.url) {
                     addImageUrl(part.image_url.url)
                     continue
                 }
                 if (typeof part.url === 'string') {
                     // 兼容部分后端直接给 url 字段
                     addImageUrl(part.url)
+                }
+                if (typeof part.b64_json === 'string') {
+                    addImageUrl(`data:image/png;base64,${part.b64_json}`)
+                }
+                for (const key of ['base64', 'image', 'image_base64', 'output', 'result', 'text', 'content']) {
+                    addStringImage(part[key])
                 }
             }
         }
@@ -449,11 +497,35 @@ export class banana extends plugin {
             return imageUrls
         }
 
+        for (const key of ['url', 'image_url']) {
+            if (typeof data[key] === 'string') addImageUrl(data[key])
+            else if (data[key]?.url) addImageUrl(data[key].url)
+        }
+
+        if (typeof data.b64_json === 'string') {
+            addImageUrl(`data:image/png;base64,${data.b64_json}`)
+        }
+
+        for (const key of ['base64', 'image', 'image_base64', 'output', 'result']) {
+            addStringImage(data[key])
+            if (data[key] && typeof data[key] === 'object') {
+                extractFromContentParts(Array.isArray(data[key]) ? data[key] : [data[key]])
+            }
+        }
+
+        for (const key of ['outputs', 'artifacts', 'results']) {
+            if (Array.isArray(data[key])) extractFromContentParts(data[key])
+        }
+
         if (data.images && Array.isArray(data.images)) {
             for (const img of data.images) {
-                if (img.type === 'image_url' && img.image_url?.url) {
-                    addImageUrl(img.image_url.url)
-                }
+                extractFromContentParts([img])
+            }
+        }
+
+        if (data.data && Array.isArray(data.data)) {
+            for (const item of data.data) {
+                extractFromContentParts([item])
             }
         }
 
@@ -484,9 +556,137 @@ export class banana extends plugin {
             for (const match of dataUrlMatches) {
                 addImageUrl(match[1])
             }
+            addBase64Image(content)
         }
 
         return imageUrls
+    }
+
+    inferImageMimeFromBase64(value) {
+        if (!value || typeof value !== 'string') return ''
+        if (value.length < 512) return ''
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return ''
+
+        let head
+        try {
+            head = Buffer.from(value.slice(0, 96), 'base64')
+        } catch {
+            return ''
+        }
+
+        if (head.length < 8) return ''
+        if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return 'image/png'
+        if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg'
+        if (head.slice(0, 4).toString() === 'RIFF' && head.slice(8, 12).toString() === 'WEBP') return 'image/webp'
+        if (head.slice(0, 3).toString() === 'GIF') return 'image/gif'
+
+        return ''
+    }
+
+    collectTextFromData(data) {
+        if (!data || typeof data !== 'object') return ''
+
+        const texts = []
+        const push = value => {
+            if (typeof value === 'string') texts.push(value)
+        }
+
+        const collectFromContent = content => {
+            if (typeof content === 'string') {
+                push(content)
+                return
+            }
+            if (!Array.isArray(content)) return
+
+            for (const part of content) {
+                if (!part || typeof part !== 'object') continue
+                push(part.text)
+                push(part.content)
+            }
+        }
+
+        push(data.text)
+        push(data.output_text)
+        collectFromContent(data.content)
+
+        const choice = data.choices?.[0]
+        if (choice) {
+            push(choice.text)
+            collectFromContent(choice.delta?.content)
+            collectFromContent(choice.message?.content)
+        }
+
+        return texts.join('')
+    }
+
+    compactResponseText(value, maxLength = 800) {
+        if (value === undefined || value === null) return ''
+        let text = typeof value === 'string' ? value : JSON.stringify(value)
+        text = text
+            .replace(/data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/gi, '[base64图片已省略]')
+            .replace(/data:video\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/gi, '[base64视频已省略]')
+            .replace(/[A-Za-z0-9+/=]{500,}/g, '[base64内容已省略]')
+            .trim()
+        if (text.length > maxLength) return `${text.slice(0, maxLength)}...`
+        return text
+    }
+
+    extractApiErrorMessage(data, fallback = '', includeTextFallback = true) {
+        let payload = data
+        if (typeof payload === 'string') {
+            const text = payload.trim()
+            if (!text) return ''
+            try {
+                payload = JSON.parse(text)
+            } catch {
+                return this.compactResponseText(text)
+            }
+        }
+
+        if (!payload || typeof payload !== 'object') {
+            return this.compactResponseText(fallback)
+        }
+
+        const messages = []
+        const add = value => {
+            if (value === undefined || value === null || value === '') return
+            const text = this.compactResponseText(value, 300)
+            if (!text) return
+            if (!messages.includes(text)) messages.push(text)
+        }
+
+        const addErrorObject = err => {
+            if (!err) return
+            if (typeof err === 'string') {
+                add(err)
+                return
+            }
+            if (typeof err !== 'object') return
+            add(err.message)
+            if (typeof err.detail === 'string') add(err.detail)
+            else if (err.detail?.message) add(err.detail.message)
+        }
+
+        addErrorObject(payload.error)
+        add(payload.message)
+        add(payload.msg)
+        addErrorObject(payload.detail)
+
+        if (Array.isArray(payload.choices)) {
+            for (const choice of payload.choices) {
+                if (!choice || typeof choice !== 'object') continue
+                addErrorObject(choice.error)
+                add(choice.message?.refusal)
+                add(choice.delta?.refusal)
+            }
+        }
+
+        if (messages.length > 0) return this.compactResponseText(messages.join('；'))
+
+        if (!includeTextFallback) return this.compactResponseText(fallback)
+
+        const text = this.collectTextFromData(payload)
+        return this.compactResponseText(text || fallback)
     }
 
     // 从响应数据中提取视频 URL（尽量兼容不同后端返回结构）
@@ -703,15 +903,6 @@ export class banana extends plugin {
             imageUrls = unique.slice(0, 3)
         }
 
-        let currentApiKey = null
-
-        try {
-            currentApiKey = BananaService.getNextApiKey()
-        } catch (keyError) {
-            await e.reply(`❌ ${keyError.message}`)
-            return
-        }
-
         const apiUrl = this.config.api_url
         if (!apiUrl) {
             await e.reply('❌ 请先配置 API 服务地址')
@@ -722,7 +913,6 @@ export class banana extends plugin {
         if (imageProtocol === 'openai_images') {
             await this.performOpenAIImagesGeneration(e, {
                 apiUrl,
-                apiKey: currentApiKey,
                 model,
                 prompt,
                 imageUrls,
@@ -775,36 +965,46 @@ export class banana extends plugin {
         }
 
         const urlObj = new URL(apiUrl)
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${currentApiKey}`,
-            'User-Agent': 'Yunzai-Banana-Plugin/1.0.0',
-            'Accept': '*/*',
-            'Host': urlObj.host,
-            'Connection': 'keep-alive'
-        }
 
         logger.debug(`[Banana] API 请求 - 地址: ${apiUrl}`)
         logger.debug(`[Banana] API 请求 - 模型: ${model}`)
         logger.debug(`[Banana] API 请求 - 模式: ${useStream ? '流式' : '非流式'}`)
 
-        try {
-            let result
-            if (useStream) {
-                result = await this.streamRequest(apiUrl, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify(payload)
-                })
-            } else {
-                result = await this.nonStreamRequest(apiUrl, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify(payload)
-                })
-            }
+        const maxAttempts = this.getRetryCount() + 1
+        let lastError = null
+        let attemptsUsed = 0
 
-            if (result.success) {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            let currentApiKey = null
+            attemptsUsed = attempt
+            try {
+                currentApiKey = BananaService.getNextApiKey()
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${currentApiKey}`,
+                    'User-Agent': 'Yunzai-Banana-Plugin/1.0.0',
+                    'Accept': '*/*',
+                    'Host': urlObj.host,
+                    'Connection': 'keep-alive'
+                }
+
+                let result
+                if (useStream) {
+                    result = await this.streamRequest(apiUrl, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload)
+                    })
+                } else {
+                    result = await this.nonStreamRequest(apiUrl, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload)
+                    })
+                }
+
+                if (!result.success) throw new Error(result.error)
+
                 BananaService.recordKeyUsage(currentApiKey, true)
                 const resultImageUrls = result.imageUrls || (result.imageUrl ? [result.imageUrl] : [])
                 if (resultImageUrls.length > 0) {
@@ -813,8 +1013,10 @@ export class banana extends plugin {
 
                     const replyMsg = resultImageUrls.map(url => segment.image(url))
                     const presetText = presetName ? `\n🎯 预设: ${presetName}` : ''
-                    replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}${countText}`)
+                    const retryText = attemptsUsed > 1 ? `\n🔁 重试后成功: ${attemptsUsed} 次尝试` : ''
+                    replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}${countText}${retryText}`)
                     await e.reply(replyMsg, quoteReply)
+                    return
                 } else if (Array.isArray(result.videoUrls) && result.videoUrls.length > 0) {
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
                     const replyMsg = []
@@ -822,38 +1024,47 @@ export class banana extends plugin {
                         const seg = this.toVideoSegment(url)
                         if (seg) replyMsg.push(seg)
                     }
-                    replyMsg.push(`\n✅ 生成完成（${elapsed}s）\n🤖 模型: ${model}\n⚠️ 检测到视频输出，已发送视频结果。`)
+                    const retryText = attemptsUsed > 1 ? `\n🔁 重试后成功: ${attemptsUsed} 次尝试` : ''
+                    replyMsg.push(`\n✅ 生成完成（${elapsed}s）\n🤖 模型: ${model}\n⚠️ 检测到视频输出，已发送视频结果。${retryText}`)
                     await e.reply(replyMsg, quoteReply)
+                    return
                 }
-            } else {
-                throw new Error(result.error)
+
+                throw new Error('未找到生成的内容')
+            } catch (err) {
+                lastError = err
+                if (currentApiKey) BananaService.recordKeyUsage(currentApiKey, false, err?.message)
+                if (attempt < maxAttempts && this.shouldRetryError(err)) {
+                    logger?.debug?.(`[Banana] 图片生成失败，准备重试 ${attempt}/${maxAttempts - 1}: ${err?.message || err}`)
+                    continue
+                }
+                break
             }
-        } catch (err) {
-            BananaService.recordKeyUsage(currentApiKey, false, err?.message)
-
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-            let errorMsg = `❌ 生成失败（${elapsed}s）`
-            errorMsg += `\n错误: ${err.message}`
-
-            if (err.code === 'ECONNRESET' || err.message?.includes('socket hang up')) {
-                errorMsg += `\n\n💡 建议: 这通常是网络不稳定或服务器负载过高导致，请稍后再试`
-            } else if (err.code === 'ENOTFOUND') {
-                errorMsg += `\n\n💡 建议: DNS解析失败，请检查网络连接`
-            } else if (err.code === 'ETIMEDOUT') {
-                errorMsg += `\n\n💡 建议: 连接超时，请检查网络`
-            }
-
-            await e.reply(errorMsg, quoteReply)
         }
+
+        const err = lastError || new Error('生成失败')
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+        let errorMsg = `❌ 生成失败（${elapsed}s）`
+        errorMsg += `\n错误: ${err.message}${this.formatRetrySuffix(attemptsUsed)}`
+
+        if (err.code === 'ECONNRESET' || err.message?.includes('socket hang up')) {
+            errorMsg += `\n\n💡 建议: 这通常是网络不稳定或服务器负载过高导致，请稍后再试`
+        } else if (err.code === 'ENOTFOUND') {
+            errorMsg += `\n\n💡 建议: DNS解析失败，请检查网络连接`
+        } else if (err.code === 'ETIMEDOUT') {
+            errorMsg += `\n\n💡 建议: 连接超时，请检查网络`
+        }
+
+        await e.reply(errorMsg, quoteReply)
     }
 
-    async performOpenAIImagesGeneration(e, { apiUrl, apiKey, model, prompt, imageUrls, startTime, presetName, quoteReply }) {
+    async performOpenAIImagesGeneration(e, { apiUrl, model, prompt, imageUrls, startTime, presetName, quoteReply }) {
         const hasImages = Array.isArray(imageUrls) && imageUrls.length > 0
         const endpoint = hasImages ? 'edits' : 'generations'
         const requestUrl = getImagesApiUrl(apiUrl, endpoint)
         const responseFormat = this.config.image_response_format || 'url'
         const headers = {
-            'Authorization': `Bearer ${apiKey}`,
             'User-Agent': 'Yunzai-Banana-Plugin/1.0.0',
             'Accept': '*/*',
             'Connection': 'keep-alive'
@@ -900,43 +1111,67 @@ export class banana extends plugin {
         logger.debug(`[Banana] Images API 请求 - 模型: ${model}`)
         logger.debug(`[Banana] Images API 请求 - response_format: ${responseFormat}`)
 
-        try {
-            const result = await this.nonStreamRequest(requestUrl, {
-                method: 'POST',
-                headers,
-                body
-            })
+        const maxAttempts = this.getRetryCount() + 1
+        let lastError = null
+        let attemptsUsed = 0
 
-            if (!result.success) throw new Error(result.error)
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            let currentApiKey = null
+            attemptsUsed = attempt
+            try {
+                currentApiKey = BananaService.getNextApiKey()
+                const result = await this.nonStreamRequest(requestUrl, {
+                    method: 'POST',
+                    headers: {
+                        ...headers,
+                        'Authorization': `Bearer ${currentApiKey}`
+                    },
+                    body
+                })
 
-            BananaService.recordKeyUsage(apiKey, true)
-            const resultImageUrls = result.imageUrls || []
-            const resultVideoUrls = result.videoUrls || []
+                if (!result.success) throw new Error(result.error)
 
-            if (resultImageUrls.length > 0) {
-                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-                const countText = resultImageUrls.length > 1 ? `\n📷 共 ${resultImageUrls.length} 张图片` : ''
-                const presetText = presetName ? `\n🎯 预设: ${presetName}` : ''
-                const replyMsg = resultImageUrls.map(url => segment.image(url))
-                replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}\n🔌 协议: OpenAI Images / ${endpoint}${countText}`)
-                await e.reply(replyMsg, quoteReply)
-            } else if (resultVideoUrls.length > 0) {
-                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-                const replyMsg = []
-                for (const url of resultVideoUrls.slice(0, 3)) {
-                    const seg = this.toVideoSegment(url)
-                    if (seg) replyMsg.push(seg)
+                BananaService.recordKeyUsage(currentApiKey, true)
+                const resultImageUrls = result.imageUrls || []
+                const resultVideoUrls = result.videoUrls || []
+
+                if (resultImageUrls.length > 0) {
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+                    const countText = resultImageUrls.length > 1 ? `\n📷 共 ${resultImageUrls.length} 张图片` : ''
+                    const presetText = presetName ? `\n🎯 预设: ${presetName}` : ''
+                    const retryText = attemptsUsed > 1 ? `\n🔁 重试后成功: ${attemptsUsed} 次尝试` : ''
+                    const replyMsg = resultImageUrls.map(url => segment.image(url))
+                    replyMsg.push(`\n✅ 图片生成完成（${elapsed}s）\n🤖 模型: ${model}${presetText}\n🔌 协议: OpenAI Images / ${endpoint}${countText}${retryText}`)
+                    await e.reply(replyMsg, quoteReply)
+                    return
+                } else if (resultVideoUrls.length > 0) {
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+                    const replyMsg = []
+                    for (const url of resultVideoUrls.slice(0, 3)) {
+                        const seg = this.toVideoSegment(url)
+                        if (seg) replyMsg.push(seg)
+                    }
+                    const retryText = attemptsUsed > 1 ? `\n🔁 重试后成功: ${attemptsUsed} 次尝试` : ''
+                    replyMsg.push(`\n✅ 生成完成（${elapsed}s）\n🤖 模型: ${model}\n🔌 协议: OpenAI Images / ${endpoint}${retryText}`)
+                    await e.reply(replyMsg, quoteReply)
+                    return
                 }
-                replyMsg.push(`\n✅ 生成完成（${elapsed}s）\n🤖 模型: ${model}\n🔌 协议: OpenAI Images / ${endpoint}`)
-                await e.reply(replyMsg, quoteReply)
-            } else {
+
                 throw new Error('未找到生成的内容')
+            } catch (err) {
+                lastError = err
+                if (currentApiKey) BananaService.recordKeyUsage(currentApiKey, false, err?.message)
+                if (attempt < maxAttempts && this.shouldRetryError(err)) {
+                    logger?.debug?.(`[Banana] Images API 生成失败，准备重试 ${attempt}/${maxAttempts - 1}: ${err?.message || err}`)
+                    continue
+                }
+                break
             }
-        } catch (err) {
-            BananaService.recordKeyUsage(apiKey, false, err?.message)
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-            await e.reply(`❌ 生成失败（${elapsed}s）\n错误: ${err.message}`, quoteReply)
         }
+
+        const err = lastError || new Error('生成失败')
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+        await e.reply(`❌ 生成失败（${elapsed}s）\n错误: ${err.message}${this.formatRetrySuffix(attemptsUsed)}`, quoteReply)
     }
 
 	    async performVideoGeneration(e, model, prompt, startTime) {
@@ -1004,14 +1239,6 @@ export class banana extends plugin {
             stream: useStream
         }
 
-        let currentApiKey = null
-        try {
-            currentApiKey = BananaService.getNextApiKey()
-        } catch (keyError) {
-            await e.reply(`❌ ${keyError.message}`)
-            return
-        }
-
         const apiUrl = this.config.api_url
         if (!apiUrl) {
             await e.reply('❌ 请先配置 API 服务地址')
@@ -1019,59 +1246,76 @@ export class banana extends plugin {
         }
 
         const urlObj = new URL(apiUrl)
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${currentApiKey}`,
-            'User-Agent': 'Yunzai-Banana-Plugin/1.0.0',
-            'Accept': '*/*',
-            'Host': urlObj.host,
-            'Connection': 'keep-alive'
-        }
 
         logger.debug(`[Banana] 视频 API 请求 - 地址: ${apiUrl}`)
         logger.debug(`[Banana] 视频 API 请求 - 模型: ${model}`)
         logger.debug(`[Banana] 视频 API 请求 - 模式: ${useStream ? '流式' : '非流式'}`)
 
-        try {
-            const result = await this.streamRequest(apiUrl, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify(payload)
-            })
+        const maxAttempts = this.getRetryCount() + 1
+        let lastError = null
+        let attemptsUsed = 0
 
-            if (!result.success) throw new Error(result.error)
-
-            BananaService.recordKeyUsage(currentApiKey, true)
-            const videoUrls = result.videoUrls || []
-            const imageFallback = result.imageUrls || []
-
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-            const summaryMsg = `✅ 视频生成完成（${elapsed}s）\n🤖 模型: ${model}`
-
-            if (videoUrls.length > 0) {
-                // 先单独发视频，再发总结
-                for (const url of videoUrls.slice(0, 3)) {
-                    const seg = this.toVideoSegment(url)
-                    if (seg) await e.reply(seg, quoteReply)
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            let currentApiKey = null
+            attemptsUsed = attempt
+            try {
+                currentApiKey = BananaService.getNextApiKey()
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${currentApiKey}`,
+                    'User-Agent': 'Yunzai-Banana-Plugin/1.0.0',
+                    'Accept': '*/*',
+                    'Host': urlObj.host,
+                    'Connection': 'keep-alive'
                 }
-                await e.reply(summaryMsg, quoteReply)
-                return
-            } else if (imageFallback.length > 0) {
-                // 某些后端可能用图片形式返回（兜底）
-                await e.reply(imageFallback.slice(0, 3).map(url => segment.image(url)), quoteReply)
-                await e.reply(`${summaryMsg}\n⚠️ 未检测到视频输出，已发送图片结果作为兜底。`, quoteReply)
-                return
-            } else {
-                throw new Error('未找到生成的内容（未解析到视频/图片 URL）')
-            }
-        } catch (err) {
-            BananaService.recordKeyUsage(currentApiKey, false, err?.message)
+                const result = await this.streamRequest(apiUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload)
+                })
 
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-            let errorMsg = `❌ 生成失败（${elapsed}s）`
-            errorMsg += `\n错误: ${err.message}`
-            await e.reply(errorMsg, quoteReply)
+                if (!result.success) throw new Error(result.error)
+
+                BananaService.recordKeyUsage(currentApiKey, true)
+                const videoUrls = result.videoUrls || []
+                const imageFallback = result.imageUrls || []
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+                const retryText = attemptsUsed > 1 ? `\n🔁 重试后成功: ${attemptsUsed} 次尝试` : ''
+                const summaryMsg = `✅ 视频生成完成（${elapsed}s）\n🤖 模型: ${model}${retryText}`
+
+                if (videoUrls.length > 0) {
+                    // 先单独发视频，再发总结
+                    for (const url of videoUrls.slice(0, 3)) {
+                        const seg = this.toVideoSegment(url)
+                        if (seg) await e.reply(seg, quoteReply)
+                    }
+                    await e.reply(summaryMsg, quoteReply)
+                    return
+                } else if (imageFallback.length > 0) {
+                    // 某些后端可能用图片形式返回（兜底）
+                    await e.reply(imageFallback.slice(0, 3).map(url => segment.image(url)), quoteReply)
+                    await e.reply(`${summaryMsg}\n⚠️ 未检测到视频输出，已发送图片结果作为兜底。`, quoteReply)
+                    return
+                }
+
+                throw new Error('未找到生成的内容（未解析到视频/图片 URL）')
+            } catch (err) {
+                lastError = err
+                if (currentApiKey) BananaService.recordKeyUsage(currentApiKey, false, err?.message)
+                if (attempt < maxAttempts && this.shouldRetryError(err)) {
+                    logger?.debug?.(`[Banana] 视频生成失败，准备重试 ${attempt}/${maxAttempts - 1}: ${err?.message || err}`)
+                    continue
+                }
+                break
+            }
         }
+
+        const err = lastError || new Error('生成失败')
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+        let errorMsg = `❌ 生成失败（${elapsed}s）`
+        errorMsg += `\n错误: ${err.message}${this.formatRetrySuffix(attemptsUsed)}`
+        await e.reply(errorMsg, quoteReply)
     }
 
     async streamRequest(url, options) {
@@ -1079,6 +1323,7 @@ export class banana extends plugin {
             const urlObj = new URL(url)
             const isHttps = urlObj.protocol === 'https:'
             const httpModule = isHttps ? https : http
+            const logFullResponse = this.config.debug_response_log === true
 
             const requestOptions = {
                 hostname: urlObj.hostname,
@@ -1095,7 +1340,9 @@ export class banana extends plugin {
                     res.on('data', chunk => chunks.push(chunk))
                     res.on('end', () => {
                         const errorData = Buffer.concat(chunks).toString()
-                        resolve({ success: false, error: `HTTP ${res.statusCode}: ${errorData}` })
+                        if (logFullResponse) logger.debug(`[Banana] 流式响应 HTTP ${res.statusCode}: ${errorData}`)
+                        const detail = this.extractApiErrorMessage(errorData)
+                        resolve({ success: false, error: `HTTP ${res.statusCode}: ${detail || this.compactResponseText(errorData)}` })
                     })
                     res.on('error', err => {
                         resolve({ success: false, error: `HTTP ${res.statusCode} 响应错误: ${err.message}` })
@@ -1107,14 +1354,32 @@ export class banana extends plugin {
                 let finalImageUrls = []
                 let finalVideoUrls = []
                 let errorMessages = []
+                let accumulatedText = ''
+
+                const collectFinalUrlsFromText = () => {
+                    if (!accumulatedText) return
+                    finalImageUrls = this.extractImagesFromData({ content: accumulatedText }, finalImageUrls)
+                    finalVideoUrls = this.extractVideosFromData({ content: accumulatedText }, finalVideoUrls)
+                }
 
                 const processJsonChunk = jsonData => {
                     if (!jsonData || typeof jsonData !== 'object') return
+
+                    const apiError = this.extractApiErrorMessage(jsonData, '', false)
+                    if (apiError) errorMessages.push(apiError)
+
+                    finalImageUrls = this.extractImagesFromData(jsonData, finalImageUrls)
+                    finalVideoUrls = this.extractVideosFromData(jsonData, finalVideoUrls)
 
                     // 兼容 OpenAI：choices[].delta / choices[].message
                     const choice = jsonData.choices?.[0]
                     const delta = choice?.delta
                     const message = choice?.message
+                    const text = this.collectTextFromData(jsonData)
+                    if (text) {
+                        accumulatedText += text
+                    }
+
                     if (delta?.reasoning_content) {
                         const reasoning = delta.reasoning_content
                         if (typeof reasoning === 'string' && (reasoning.includes('❌') || reasoning.includes('生成失败')))
@@ -1137,11 +1402,15 @@ export class banana extends plugin {
                     if (!data) return 'empty'
 
                     if (data === '[DONE]') {
+                        collectFinalUrlsFromText()
                         if (finalVideoUrls.length > 0 || finalImageUrls.length > 0)
                             resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
                         else if (errorMessages.length > 0)
-                            resolve({ success: false, error: `生成失败: ${errorMessages.join('\n')}` })
-                        else resolve({ success: false, error: '未找到生成的内容' })
+                            resolve({ success: false, error: `生成失败: ${Array.from(new Set(errorMessages)).join('\n')}` })
+                        else {
+                            const textDetail = this.compactResponseText(accumulatedText)
+                            resolve({ success: false, error: textDetail ? `未找到生成的内容：${textDetail}` : '未找到生成的内容' })
+                        }
                         return 'done'
                     }
 
@@ -1156,6 +1425,7 @@ export class banana extends plugin {
 
                 res.on('data', chunk => {
                     const chunkStr = chunk.toString()
+                    if (logFullResponse) logger.debug(`[Banana] 流式响应 chunk: ${chunkStr}`)
                     buffer += chunkStr
 
                     const lines = buffer.split(/\r?\n/)
@@ -1201,12 +1471,14 @@ export class banana extends plugin {
                         }
                     }
 
+                    collectFinalUrlsFromText()
                     if (finalVideoUrls.length > 0 || finalImageUrls.length > 0) {
                         resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
                     } else if (errorMessages.length > 0) {
-                        resolve({ success: false, error: `生成失败: ${errorMessages.join('\n')}` })
+                        resolve({ success: false, error: `生成失败: ${Array.from(new Set(errorMessages)).join('\n')}` })
                     } else {
-                        resolve({ success: false, error: '流式响应异常结束' })
+                        const textDetail = this.compactResponseText(accumulatedText)
+                        resolve({ success: false, error: textDetail ? `流式响应异常结束：${textDetail}` : '流式响应异常结束' })
                     }
                 })
 
@@ -1339,6 +1611,7 @@ export class banana extends plugin {
             const urlObj = new URL(url)
             const isHttps = urlObj.protocol === 'https:'
             const httpModule = isHttps ? https : http
+            const logFullResponse = this.config.debug_response_log === true
 
             const requestOptions = {
                 hostname: urlObj.hostname,
@@ -1355,7 +1628,9 @@ export class banana extends plugin {
                     res.on('data', chunk => chunks.push(chunk))
                     res.on('end', () => {
                         const errorData = Buffer.concat(chunks).toString()
-                        resolve({ success: false, error: `HTTP ${res.statusCode}: ${errorData}` })
+                        if (logFullResponse) logger.debug(`[Banana] 非流式响应 HTTP ${res.statusCode}: ${errorData}`)
+                        const detail = this.extractApiErrorMessage(errorData)
+                        resolve({ success: false, error: `HTTP ${res.statusCode}: ${detail || this.compactResponseText(errorData)}` })
                     })
                     res.on('error', err => {
                         resolve({ success: false, error: `HTTP ${res.statusCode} 响应错误: ${err.message}` })
@@ -1370,10 +1645,13 @@ export class banana extends plugin {
                     try {
                         const buffer = Buffer.concat(chunks)
                         const responseText = buffer.toString()
+                        if (logFullResponse) logger.debug(`[Banana] 非流式响应 HTTP ${res.statusCode}: ${responseText}`)
                         const jsonData = JSON.parse(responseText)
 
                         let finalImageUrls = []
                         let finalVideoUrls = []
+                        finalImageUrls = this.extractImagesFromData(jsonData, finalImageUrls)
+                        finalVideoUrls = this.extractVideosFromData(jsonData, finalVideoUrls)
                         if (jsonData.choices?.[0]?.message) {
                             finalImageUrls = this.extractImagesFromData(jsonData.choices[0].message, finalImageUrls)
                             finalVideoUrls = this.extractVideosFromData(jsonData.choices[0].message, finalVideoUrls)
@@ -1390,11 +1668,14 @@ export class banana extends plugin {
                         if (finalVideoUrls.length > 0 || finalImageUrls.length > 0) {
                             resolve({ success: true, imageUrls: finalImageUrls, videoUrls: finalVideoUrls })
                         } else {
-                            const errorMsg = jsonData.error?.message || jsonData.message || '未找到生成的内容'
+                            const errorMsg = this.extractApiErrorMessage(jsonData) || '未找到生成的内容'
                             resolve({ success: false, error: `生成失败: ${errorMsg}` })
                         }
                     } catch (parseErr) {
-                        resolve({ success: false, error: `解析响应失败: ${parseErr.message}` })
+                        const responseText = Buffer.concat(chunks).toString()
+                        if (logFullResponse) logger.debug(`[Banana] 非流式响应解析失败原文: ${responseText}`)
+                        const detail = this.compactResponseText(responseText, 500)
+                        resolve({ success: false, error: `解析响应失败: ${parseErr.message}${detail ? `；响应: ${detail}` : ''}` })
                     }
                 })
 
@@ -1466,8 +1747,6 @@ export class banana extends plugin {
             {
                 group: '🔧 管理命令 (仅主人)',
                 list: [
-                    { title: '#大香蕉添加key <密钥>', desc: '添加 API 密钥' },
-                    { title: '#大香蕉key列表', desc: '查看密钥状态' },
                     { title: '#大香蕉调试', desc: '查看调试信息' }
                 ]
             }
@@ -1501,95 +1780,16 @@ export class banana extends plugin {
         if (!e.isMaster) { await e.reply('❌ 仅主人可用'); return }
 
         try {
-            const keysConfig = BananaService.getKeysConfig()
-            const activeKeys = keysConfig.keys.filter(k => k.status === 'active').length
-            const disabledKeys = keysConfig.keys.filter(k => k.status === 'disabled').length
+            const apiKeyCount = BananaService.getConfiguredApiKeys().length
 
             await e.reply(`🔧 大香蕉插件调试信息
-📊 密钥状态: 总计${keysConfig.keys.length}个, 活跃${activeKeys}个, 禁用${disabledKeys}个
-📈 请求统计: 总计${keysConfig.statistics?.totalRequests || 0}次
+📊 API Key: 已配置${apiKeyCount}个
 🎯 当前队列: ${taskQueue.length}个任务
 ⚙️ API地址: ${this.config.api_url || '未配置'}
 🤖 默认模型: ${this.config.default_model || 'gemini-3-pro-image-preview'}
 📡 流式响应: ${this.config.use_stream !== false ? '启用' : '禁用'}`)
         } catch (err) {
             await e.reply(`❌ 调试失败: ${err.message}`)
-        }
-    }
-
-    async addApiKeys(e) {
-        if (!e.isMaster) { await e.reply('❌ 仅主人可用'); return }
-
-        try {
-            const raw = e.msg.slice('#大香蕉添加key'.length).trim()
-            if (!raw) {
-                await e.reply('❌ 请提供API密钥\n\n📝 使用方法：\n#大香蕉添加key <密钥1> [密钥2] ...')
-                return
-            }
-
-            const keys = raw.split(/[\s,;，；\n\r]+/).filter(k => k.trim().length > 0)
-            if (keys.length === 0) {
-                await e.reply('❌ 未检测到有效的API密钥。')
-                return
-            }
-
-            const addedKeys = []
-            const duplicateKeys = []
-
-            for (const key of keys) {
-                const result = BananaService.addApiKey(key, e.user_id)
-                if (result.success) {
-                    addedKeys.push(key.substring(0, 12) + '***')
-                } else {
-                    duplicateKeys.push(key.substring(0, 12) + '***')
-                }
-            }
-
-            let reply = `✅ 操作完成:`
-            if (addedKeys.length > 0) {
-                reply += `\n- 成功添加 ${addedKeys.length} 个新密钥。`
-            }
-            if (duplicateKeys.length > 0) {
-                reply += `\n- 跳过 ${duplicateKeys.length} 个重复密钥。`
-            }
-
-            const keysConfig = BananaService.getKeysConfig()
-            const activeCount = keysConfig.keys.filter(k => k.status === 'active').length
-            reply += `\n\n📊 当前状态：总计 ${keysConfig.keys.length} 个，活跃 ${activeCount} 个`
-
-            await e.reply(reply)
-        } catch (err) {
-            await e.reply(`❌ 添加密钥失败: ${err.message}`)
-        }
-    }
-
-    async listApiKeys(e) {
-        if (!e.isMaster) { await e.reply('❌ 仅主人可用'); return }
-
-        try {
-            const config = BananaService.getKeysConfig()
-
-            if (!config.keys || config.keys.length === 0) {
-                await e.reply('📝 当前没有配置任何API密钥\n\n使用 #大香蕉添加key <密钥> 来添加密钥')
-                return
-            }
-
-            const keyList = config.keys.map((key, index) => {
-                const maskedKey = key.value.substring(0, 12) + '***'
-                const isCurrent = index === config.currentIndex
-                const status = key.status === 'active' ? '✅' : '❌'
-                const todayUsage = key.todayUsage || 0
-                const todayFailed = key.todayFailed || 0
-
-                return `${index + 1}. ${maskedKey} ${status}${isCurrent ? ' (当前)' : ''} [${todayUsage}|${todayFailed}]`
-            }).join('\n')
-
-            const activeCount = config.keys.filter(k => k.status === 'active').length
-            const disabledCount = config.keys.filter(k => k.status === 'disabled').length
-
-            await e.reply(`📝 大香蕉 API密钥列表 (${config.keys.length}个)\n\n${keyList}\n\n📊 状态统计: 活跃${activeCount}个, 禁用${disabledCount}个\n📋 格式: [当日用量|当日失败]`)
-        } catch (err) {
-            await e.reply(`❌ 获取密钥列表失败: ${err.message}`)
         }
     }
 
@@ -1618,16 +1818,4 @@ export class banana extends plugin {
         }
     }
 
-    async resetDisabledKeys() {
-        try {
-            const resetCount = BananaService.resetDisabledKeys()
-            if (resetCount > 0) {
-                logger.info(`[Banana] 定时任务：已重置 ${resetCount} 个失效密钥`)
-            } else {
-                logger.info('[Banana] 定时任务：没有失效密钥需要重置')
-            }
-        } catch (err) {
-            logger.info('[Banana] 定时任务执行失败:', err.message)
-        }
-    }
 }

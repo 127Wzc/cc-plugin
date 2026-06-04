@@ -3,6 +3,10 @@
 # API 服务地址
 api_url: "https://hw-newapi.559558.xyz/v1/chat/completions"
 
+# API Key 列表
+# 支持配置多个，失败重试时会自动轮换；不会标记、禁用或清理异常 key
+api_keys: []
+
 # 默认模型
 default_model: "gemini-3-pro-image-preview"
 
@@ -21,17 +25,19 @@ default_video_model: ""
 # 是否使用流式响应
 use_stream: true
 
+# 调试：是否打印完整接口响应日志
+# 开启后会打印完整非流式响应体和流式原始 chunk，可能包含超大 base64，仅建议本地排查时临时开启
+debug_response_log: false
+
+# 单任务失败重试次数
+# 设为 0 则不重试；默认 3 表示失败后最多再重试 3 次
+retry_count: 3
+
 # 队列最大并发数
 max_concurrent: 1
 
 # 队列最大长度
 max_queue: 5
-
-# 是否在错误时禁用密钥
-disable_keys_on_error: false
-
-# 密钥每日失败阈值 (超过此值自动禁用)
-daily_fail_threshold: 10
 
 # 预设列表
 # 每个预设包含: cmd(命令), name(名称), desc(描述), prompt(提示词)
