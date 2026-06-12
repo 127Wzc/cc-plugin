@@ -130,22 +130,12 @@ const PROMPT_VARIABLE_PATTERN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/
 
 export class banana extends plugin {
     constructor() {
-        // 动态生成预设命令正则
-        const cmdList = BananaService.getCmdList()
-        const presetReg = cmdList.length > 0
-            ? `^#(${cmdList.map(escapeRegex).join('|')})(?:\\s+.+)?$`
-            : '^#__DISABLED_PRESET__$'
-
         super({
             name: '[cc-plugin] Banana 大香蕉',
             dsc: '大香蕉图片生成插件',
             event: 'message',
             priority: 200,
             rule: [
-                {
-                    reg: presetReg,
-                    fnc: 'generateImageByPreset'
-                },
                 {
                     reg: '^#cc切换图片模型\\s*.+$',
                     fnc: 'switchImageModel',
@@ -182,6 +172,14 @@ export class banana extends plugin {
 
     get config() {
         return BananaService.config
+    }
+
+    async accept(e) {
+        const parsed = this.parsePresetCommand(e?.msg)
+        if (!parsed) return false
+
+        await this.generateImageByPreset(e, parsed)
+        return 'return'
     }
 
     async takeSourceMsg(e, { img, file } = {}) {
@@ -226,6 +224,40 @@ export class banana extends plugin {
         return /^all$/i.test(userId) ? String(e.user_id || '') : userId
     }
 
+    async resolveImageUrls(e, { avatarFallback = false, targetUserId = '', maxImages = 3 } = {}) {
+        const imageUrls = []
+
+        const addImages = urls => {
+            if (!Array.isArray(urls)) return
+            for (const url of urls) {
+                if (url && !imageUrls.includes(url)) imageUrls.push(url)
+            }
+        }
+
+        // 优先级 1：当前消息里的图片
+        const currentMsgImgs = (e.message || [])
+            .filter(m => m.type === 'image' && m.url)
+            .map(m => m.url)
+        addImages(currentMsgImgs)
+
+        // 优先级 2：回复消息中的图片
+        const replyImgs = await this.takeSourceMsg(e, { img: true })
+        addImages(replyImgs)
+
+        // 优先级 3：预设作图无图时，使用目标用户头像兜底
+        if (avatarFallback && imageUrls.length === 0) {
+            const fallbackUserId = this.getTargetUserId(e, targetUserId)
+            if (fallbackUserId) addImages([await this.getAvatarUrl(fallbackUserId)])
+            if (imageUrls.length === 0 && e.user_id) addImages([await this.getAvatarUrl(e.user_id)])
+        }
+
+        if (imageUrls.length > maxImages) {
+            logger?.debug?.(`[Banana] 输入图片超出${maxImages}张，已截取前${maxImages}张`)
+        }
+
+        return imageUrls.slice(0, maxImages)
+    }
+
     async getDisplayName(e, userId = e.user_id, manualNickname = '') {
         const manualName = String(manualNickname || '').trim()
         if (manualName) return manualName
@@ -258,6 +290,46 @@ export class banana extends plugin {
         }
 
         return targetUserId || String(e.user_id || '')
+    }
+
+    parsePresetCommand(msg = '') {
+        const text = String(msg || '').trim()
+        if (!text.startsWith('#')) return null
+
+        const presets = BananaService.getPresets()
+        if (!Array.isArray(presets) || presets.length === 0) return null
+
+        const cmdList = presets
+            .map(p => String(p?.cmd || '').trim())
+            .filter(Boolean)
+            .sort((a, b) => b.length - a.length)
+
+        const presetPrefixMatch = text.match(/^#预设(?:\s+(.+))?$/)
+        if (presetPrefixMatch) {
+            const rest = String(presetPrefixMatch[1] || '').trim()
+            if (!rest) return null
+            for (const cmd of cmdList) {
+                if (rest === cmd || rest.startsWith(`${cmd} `)) {
+                    return {
+                        cmd,
+                        args: rest.slice(cmd.length).trim()
+                    }
+                }
+            }
+            return null
+        }
+
+        for (const cmd of cmdList) {
+            const prefix = `#${cmd}`
+            if (text === prefix || text.startsWith(`${prefix} `)) {
+                return {
+                    cmd,
+                    args: text.slice(prefix.length).trim()
+                }
+            }
+        }
+
+        return null
     }
 
     parsePresetArgs(e, rawArgs = '') {
@@ -349,19 +421,17 @@ export class banana extends plugin {
         })
     }
 
-    async generateImageByPreset(e) {
+    async generateImageByPreset(e, parsedCommand = null) {
         const startTime = Date.now()
-        const cmdList = BananaService.getCmdList()
-        const cmdRegex = new RegExp(`^#(${cmdList.map(escapeRegex).join('|')})(?:\\s+(.+))?$`)
-        const match = e.msg.match(cmdRegex)
+        const parsed = parsedCommand || this.parsePresetCommand(e?.msg)
 
-        if (!match) {
+        if (!parsed) {
             await e.reply('❌ 预设命令格式错误')
             return
         }
 
-        const cmd = match[1]
-        const { targetUserId, manualNickname, appendPrompt } = this.parsePresetArgs(e, match[2])
+        const cmd = parsed.cmd
+        const { targetUserId, manualNickname, appendPrompt } = this.parsePresetArgs(e, parsed.args)
         const preset = BananaService.getPresetByCmd(cmd)
 
         if (!preset) {
@@ -862,46 +932,13 @@ export class banana extends plugin {
     }
 
     async performGeneration(e, model, prompt, startTime, isDirectCommand = false, presetName = null, targetUserId = '', manualNickname = '') {
-        let imageUrls = []
         const quoteReply = true
         prompt = await this.renderPromptVariables(e, prompt, targetUserId, manualNickname)
-
-        // 回复消息中的图片
-        const replyImgs = await this.takeSourceMsg(e, { img: true })
-        if (Array.isArray(replyImgs) && replyImgs.length > 0) {
-            imageUrls.push(...replyImgs)
-        }
-
-        // 当前消息里的图片
-        const currentMsgImgs = e.message
-            .filter(m => m.type === 'image' && m.url)
-            .map(m => m.url)
-        if (currentMsgImgs.length > 0) {
-            imageUrls.push(...currentMsgImgs)
-        }
-
-        // 预设关键字触发且没有图片，使用用户头像兜底
-        if (!isDirectCommand && imageUrls.length === 0) {
-            const fallbackUserId = this.getTargetUserId(e, targetUserId)
-            if (fallbackUserId) {
-                const avatar = await this.getAvatarUrl(fallbackUserId)
-                if (avatar) imageUrls.push(avatar)
-            }
-
-            if (imageUrls.length === 0) {
-                const senderAvatar = await this.getAvatarUrl(e.user_id)
-                if (senderAvatar) imageUrls.push(senderAvatar)
-            }
-        }
-
-        // 去重并限制最多 3 张
-        if (imageUrls.length > 0) {
-            const unique = Array.from(new Set(imageUrls.filter(Boolean)))
-            if (unique.length > 3) {
-                logger?.debug?.(`[Banana] 输入图片超出3张，已截取前3张`)
-            }
-            imageUrls = unique.slice(0, 3)
-        }
+        const imageUrls = await this.resolveImageUrls(e, {
+            avatarFallback: !isDirectCommand,
+            targetUserId,
+            maxImages: 3
+        })
 
         const apiUrl = this.config.api_url
         if (!apiUrl) {
