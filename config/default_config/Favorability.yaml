@@ -11,6 +11,18 @@ whitelistGroups: []
 # 最小会按 10 秒处理。
 flushIntervalSeconds: 60
 
+# 是否启用连续发言惩罚。
+# 关闭后连续发言不会降低别人对该用户的好感度。
+consecutivePenaltyEnabled: false
+
+# 连续发言惩罚概率，单位百分比。
+# 连续发言超过 1 条后，如果等待时间内无人打断，会按这个概率让每条“别人 -> 该用户”的好感度 -1。
+consecutivePenaltyProbability: 30
+
+# 连续发言惩罚等待时间，单位分钟。
+# 连续发言后超过这个时间仍无人打断时，才会触发概率扣减。
+consecutivePenaltyDelayMinutes: 10
+
 # 是否启用每日好感度衰减。
 # 开启后每天维护任务会让正负好感度都向 0 靠近。
 dailyDecayEnabled: false

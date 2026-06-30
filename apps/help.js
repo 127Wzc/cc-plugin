@@ -31,9 +31,10 @@ export class help extends plugin {
                     { title: '#cc [提示词]', desc: '生成/编辑图片' },
                     { title: '#cc视频 [提示词]', desc: '生成视频（必须有参考图：回复/附图/@头像/自己头像）' },
                     { title: '作图协议', desc: '锅巴可切换 Chat Completions 或 OpenAI Images API' },
-                    { title: '#预设 昵称', desc: '手动指定昵称（用于含 {{nickname}} 的预设）' },
-                    { title: '#预设 @用户 昵称', desc: '指定目标用户和昵称；也支持 QQ号 昵称' },
-                    { title: '#预设 -p 追加要求', desc: '在预设提示词后追加自定义要求' },
+                    { title: '#手办化 昵称', desc: '手动指定昵称（用于含 {{nickname}} 的预设）' },
+                    { title: '#手办化 @用户 昵称', desc: '指定目标用户和昵称；也支持 QQ号 昵称' },
+                    { title: '#手办化 -p 追加要求', desc: '在预设提示词后追加自定义要求' },
+                    { title: '#预设 手办化', desc: '动态预设入口，锅巴新增后无需重启' },
                     { title: '#大香蕉模型列表', desc: '支持的模型' },
                     { title: '#大香蕉预设列表', desc: '预设关键字' }
                 ]

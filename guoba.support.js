@@ -686,6 +686,38 @@ export function supportGuoba() {
                     }
                 },
                 {
+                    field: 'Favorability.consecutivePenaltyEnabled',
+                    label: '启用连续发言惩罚',
+                    bottomHelpMessage: '关闭后连续发言不会降低别人对该用户的好感度；建议保持关闭。',
+                    component: 'Switch'
+                },
+                {
+                    field: 'Favorability.consecutivePenaltyProbability',
+                    label: '连续惩罚概率',
+                    helpMessage: '单位：%',
+                    bottomHelpMessage: '连续发言超过 1 条且等待时间内无人打断时，每条“别人 -> 该用户”的好感度按此概率 -1。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 0,
+                        max: 100,
+                        step: 1,
+                        placeholder: '30'
+                    }
+                },
+                {
+                    field: 'Favorability.consecutivePenaltyDelayMinutes',
+                    label: '连续惩罚等待',
+                    helpMessage: '单位：分钟',
+                    bottomHelpMessage: '连续发言后超过这个时间仍无人打断，才触发概率扣减。',
+                    component: 'InputNumber',
+                    componentProps: {
+                        min: 1,
+                        max: 1440,
+                        step: 1,
+                        placeholder: '10'
+                    }
+                },
+                {
                     field: 'Favorability.dailyDecayEnabled',
                     label: '启用每日衰减',
                     bottomHelpMessage: '开启后每天维护任务会让正负好感度都向 0 靠近。',

@@ -68,6 +68,22 @@ export class Favorability extends plugin {
     return Math.max(0, Math.trunc(value))
   }
 
+  get consecutivePenaltyProbability() {
+    const value = Number(this.config.consecutivePenaltyProbability ?? 30)
+    if (!Number.isFinite(value)) {
+      return 0.3
+    }
+    return Math.min(100, Math.max(0, value)) / 100
+  }
+
+  get consecutivePenaltyDelay() {
+    const minutes = Number(this.config.consecutivePenaltyDelayMinutes ?? 10)
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return 10 * 60 * 1000
+    }
+    return Math.max(1, Math.trunc(minutes)) * 60 * 1000
+  }
+
   isGroupAllowed(groupId) {
     const cfg = this.config
     if (cfg.enable === false) {
@@ -139,6 +155,9 @@ export class Favorability extends plugin {
     await e.reply([
       `好感度功能：${this.config.enable === false ? "关闭" : "开启"}`,
       `落盘间隔：${this.flushDelay / 1000} 秒`,
+      `连续发言惩罚：${this.config.consecutivePenaltyEnabled === true ? "开启" : "关闭"}`,
+      `连续惩罚概率：${Math.round(this.consecutivePenaltyProbability * 100)}%`,
+      `连续惩罚等待：${this.consecutivePenaltyDelay / 60000} 分钟`,
       `白名单群：${whitelist.length ? whitelist.join("、") : "空（不会自动记录普通消息）"}`,
       "命令：#好感度添加白名单、#好感度删除白名单、#好感度落盘间隔 60",
     ].join("\n"))
@@ -375,11 +394,22 @@ export class Favorability extends plugin {
   }
 
   applyConsecutiveMessagePenalty(groupId, userId) {
+    if (this.config.consecutivePenaltyEnabled !== true) {
+      return
+    }
+
     const data = this.readData(groupId)
     let hasChange = false
+    const probability = this.consecutivePenaltyProbability
+    if (probability <= 0) {
+      return
+    }
 
     for (const fromUser in data.favorability || {}) {
       if (data.favorability[fromUser][userId] !== undefined) {
+        if (Math.random() >= probability) {
+          continue
+        }
         data.favorability[fromUser][userId] -= 1
         hasChange = true
       }
@@ -425,13 +455,13 @@ export class Favorability extends plugin {
       const newStreak = (lastSenderInfo.streak || 1) + 1
       lastSender.set(groupId, { userId: currentSender, streak: newStreak })
 
-      if (newStreak > 1) {
+      if (newStreak > 1 && this.config.consecutivePenaltyEnabled === true) {
         penaltyTimers.set(
           groupId,
           setTimeout(() => {
             this.applyConsecutiveMessagePenalty(groupId, currentSender)
             penaltyTimers.delete(groupId)
-          }, 2 * 60 * 1000),
+          }, this.consecutivePenaltyDelay),
         )
       }
       return false
@@ -440,9 +470,7 @@ export class Favorability extends plugin {
     lastSender.set(groupId, { userId: currentSender, streak: 1 })
 
     if (targetUsers.length > 0) {
-      for (const targetUser of targetUsers) {
-        this.addFavorability(groupId, currentSender, targetUser, 2)
-      }
+      this.applyTargetFavorability(groupId, currentSender, targetUsers, 2)
     } else if (lastSenderInfo?.userId && lastSenderInfo.userId !== currentSender) {
       this.addFavorability(groupId, currentSender, lastSenderInfo.userId, 1)
     }
@@ -465,6 +493,12 @@ export class Favorability extends plugin {
     }
 
     return String(e.msg || e.raw_message || "").trim()
+  }
+
+  applyTargetFavorability(groupId, fromUser, targetUsers, value) {
+    for (const targetUser of targetUsers) {
+      this.addFavorability(groupId, fromUser, targetUser, value)
+    }
   }
 
   async getTargetUsers(e, currentSender) {
