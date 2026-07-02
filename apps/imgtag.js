@@ -188,6 +188,10 @@ export class ImgTag extends plugin {
                     fnc: 'myStatus'
                 },
                 {
+                    reg: '^#?cc图库重试同步(?:\\s+\\d+)?$',
+                    fnc: 'retryCloudSync'
+                },
+                {
                     reg: '^#?(cc)?(偷图|存图)(.*)$',
                     fnc: 'stealImage'
                 },
@@ -254,6 +258,73 @@ export class ImgTag extends plugin {
         msg += `- api_key: ${hasKey ? '✅ 已配置' : '❌ 未配置'}（${srcText}）`
         if (!hasKey) {
             msg += `\n\n${needKeyTip()}`
+        }
+        await e.reply(msg, true)
+        return true
+    }
+
+    async retryCloudSync(e) {
+        if (!ImgTagService.isAllowedUser(e.user_id)) return true
+
+        const config = ImgTagService.config
+        if (!config.api_url) {
+            await e.reply('❌ 请先配置 ImgTag API 地址', true)
+            return true
+        }
+        if (!ImgTagService.getApiKeyForUser(e.user_id)) {
+            await e.reply(`❌ 未配置个人 api_key\n\n${needKeyTip()}`, true)
+            return true
+        }
+
+        const countMatch = e.msg.match(/\s+(\d+)\s*$/)
+        const limit = Math.max(1, Math.min(20, Number(countMatch?.[1]) || 5))
+        const pending = ImgTagService.getPendingSyncImages(e.user_id, limit)
+
+        if (pending.length === 0) {
+            await e.reply('✅ 没有需要重试同步的图片', true)
+            return true
+        }
+
+        const callbackUrl = config.callback_url || ''
+        let ok = 0
+        let fail = 0
+        const errors = []
+
+        for (const item of pending) {
+            try {
+                const tags = Array.isArray(item.tags) ? item.tags : []
+                const cloudResult = await ImgTagService.addImageForUser(e.user_id, item.source_url, tags, '', callbackUrl)
+                ImgTagService.markSyncSuccess(item.md5, cloudResult)
+                ok++
+
+                if (callbackUrl && config.auto_analyze && cloudResult.id) {
+                    pendingCallbacks.set(String(cloudResult.id), {
+                        md5: item.md5,
+                        userId: e.user_id,
+                        groupId: e.group_id,
+                        botId: e.self_id,
+                        sourceMessageId: null
+                    })
+                }
+            } catch (err) {
+                fail++
+                const message = err?.message || String(err)
+                errors.push(`${item.md5.slice(0, 8)}: ${message}`)
+                ImgTagService.markSyncFailed(item.md5, {
+                    userId: e.user_id,
+                    sourceUrl: item.source_url,
+                    tags: item.tags,
+                    error: message,
+                    mfaceName: item.mface_name || ''
+                })
+                logger.error(`[ImgTag] 重试云端同步失败: ${item.md5} ${message}`)
+            }
+        }
+
+        let msg = `🔁 云端同步重试完成: ${ok}/${pending.length} 成功`
+        if (fail > 0) {
+            msg += `\n失败: ${fail} 个`
+            msg += `\n${errors.slice(0, 3).join('\n')}`
         }
         await e.reply(msg, true)
         return true
@@ -353,11 +424,7 @@ export class ImgTag extends plugin {
 
                         cloudResult = await ImgTagService.addImageForUser(e.user_id, imgInfo.url, imageTags, '', callbackUrl)
                         // 更新本地索引
-                        ImgTagService.updateIndex(localResult.md5, {
-                            synced: true,
-                            remote_id: cloudResult.id,
-                            remote_url: cloudResult.image_url
-                        })
+                        ImgTagService.markSyncSuccess(localResult.md5, cloudResult)
 
                         // 如果配置了回调且启用了 AI 分析，注册待处理任务
                         if (callbackUrl && config.auto_analyze && cloudResult.id) {
@@ -373,6 +440,13 @@ export class ImgTag extends plugin {
                         }
                     } catch (apiErr) {
                         logger.error(`[ImgTag] 云端上传失败: ${apiErr}`)
+                        ImgTagService.markSyncFailed(localResult.md5, {
+                            userId: e.user_id,
+                            sourceUrl: imgInfo.url,
+                            tags: imageTags,
+                            error: apiErr?.message || String(apiErr),
+                            mfaceName: imgInfo.mfaceSummary ? imgInfo.mfaceSummary.replace(/[\[\]【】]/g, '').trim() : ''
+                        })
                     }
                 }
 
@@ -380,6 +454,7 @@ export class ImgTag extends plugin {
                     md5: shortMd5,
                     isNew: localResult.isNew,
                     synced: !!cloudResult,
+                    syncFailed: config.auto_sync && config.api_url && !cloudResult,
                     tags: cloudResult?.tags || imageTags,
                     // 保存图片外显名称用于回复展示
                     mfaceName: imgInfo.mfaceSummary ? imgInfo.mfaceSummary.replace(/[\[\]【】]/g, '').trim() : ''
@@ -395,6 +470,7 @@ export class ImgTag extends plugin {
         const successCount = results.filter(r => !r.error).length
         const newCount = results.filter(r => r.isNew).length
         const syncedCount = results.filter(r => r.synced).length
+        const syncFailedCount = results.filter(r => r.syncFailed).length
 
         let replyMsg = `✅ 处理完成: ${successCount}/${imgData.length} 成功`
         if (newCount > 0) {
@@ -408,6 +484,9 @@ export class ImgTag extends plugin {
         }
         if (config.auto_sync && syncedCount === 0) {
             replyMsg += `\n☁️ 云端同步: 已跳过（未配置个人 key 或上传失败）`
+        }
+        if (syncFailedCount > 0 && ImgTagService.getApiKeyForUser(e.user_id)) {
+            replyMsg += `\n🔁 可发送 #cc图库重试同步 手动重试`
         }
         if (config.auto_sync && !ImgTagService.getApiKeyForUser(e.user_id)) {
             replyMsg += `\n${needKeyTip()}`

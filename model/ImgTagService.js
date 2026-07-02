@@ -244,6 +244,42 @@ class ImgTagService {
         this.saveIndex()
     }
 
+    markSyncFailed(md5, metadata = {}) {
+        this.updateIndex(md5, {
+            synced: false,
+            sync_failed: true,
+            sync_failed_at: Date.now(),
+            last_sync_error: metadata.error || '',
+            sync_user_id: metadata.userId ? String(metadata.userId) : '',
+            source_url: metadata.sourceUrl || '',
+            tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+            mface_name: metadata.mfaceName || ''
+        })
+    }
+
+    markSyncSuccess(md5, cloudResult = {}) {
+        this.updateIndex(md5, {
+            synced: true,
+            sync_failed: false,
+            last_sync_error: '',
+            remote_id: cloudResult.id,
+            remote_url: cloudResult.image_url
+        })
+    }
+
+    getPendingSyncImages(userId, limit = 5) {
+        this.loadIndex()
+        const uid = String(userId || '')
+        const max = Math.max(1, Math.min(20, Number(limit) || 5))
+
+        return Object.entries(this.index || {})
+            .filter(([, item]) => item?.sync_failed && !item?.synced && item?.source_url)
+            .filter(([, item]) => !uid || String(item.sync_user_id || '') === uid)
+            .sort((a, b) => Number(a[1]?.sync_failed_at || 0) - Number(b[1]?.sync_failed_at || 0))
+            .slice(0, max)
+            .map(([md5, item]) => ({ md5, ...item }))
+    }
+
     /**
      * 获取本地文件路径 (直接存储到根目录，用 MD5 命名)
      * 格式: /{md5}.{ext}

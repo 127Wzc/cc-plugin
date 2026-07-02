@@ -52,6 +52,7 @@ export class help extends plugin {
                 group: '🖼️ 图库功能',
                 list: [
                     { title: '#偷图 [标签...]', desc: '保存引用的图片' },
+                    { title: '#cc图库重试同步 [数量]', desc: '重试上传本地已保存但云端失败的图片' },
                     { title: '#cc图库设置key [key]', desc: '设置个人 ImgTag api_key' },
                     { title: '#cc图库删除key', desc: '删除个人 ImgTag api_key' },
                     { title: '#cc图库我的状态', desc: '查看授权与 key 状态' },
