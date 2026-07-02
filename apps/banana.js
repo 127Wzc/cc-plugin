@@ -389,6 +389,29 @@ export class banana extends plugin {
         return Math.max(0, Math.min(10, Math.floor(value)))
     }
 
+    isImageQuotaRetryError(err) {
+        const message = String(err?.message || err || '')
+        return /no available image quota/i.test(message)
+    }
+
+    getRetryLimitForError(err) {
+        if (this.isImageQuotaRetryError(err)) return 5
+        return this.getRetryCount()
+    }
+
+    getRetryDelayForError(err) {
+        if (this.isImageQuotaRetryError(err)) return 6000
+        return 0
+    }
+
+    getMaxRetryLoopAttempts() {
+        return Math.max(this.getRetryCount(), 5) + 1
+    }
+
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms))
+    }
+
     shouldRetryError(err) {
         const message = String(err?.message || err || '')
         if (!message) return true
@@ -1007,7 +1030,7 @@ export class banana extends plugin {
         logger.debug(`[Banana] API 请求 - 模型: ${model}`)
         logger.debug(`[Banana] API 请求 - 模式: ${useStream ? '流式' : '非流式'}`)
 
-        const maxAttempts = this.getRetryCount() + 1
+        const maxAttempts = this.getMaxRetryLoopAttempts()
         let lastError = null
         let attemptsUsed = 0
 
@@ -1071,8 +1094,11 @@ export class banana extends plugin {
             } catch (err) {
                 lastError = err
                 if (currentApiKey) BananaService.recordKeyUsage(currentApiKey, false, err?.message)
-                if (attempt < maxAttempts && this.shouldRetryError(err)) {
-                    logger?.debug?.(`[Banana] 图片生成失败，准备重试 ${attempt}/${maxAttempts - 1}: ${err?.message || err}`)
+                const retryLimit = this.getRetryLimitForError(err)
+                if (attempt <= retryLimit && this.shouldRetryError(err)) {
+                    const delayMs = this.getRetryDelayForError(err)
+                    logger?.debug?.(`[Banana] 图片生成失败，准备重试 ${attempt}/${retryLimit}: ${err?.message || err}`)
+                    if (delayMs > 0) await this.sleep(delayMs)
                     continue
                 }
                 break
@@ -1148,7 +1174,7 @@ export class banana extends plugin {
         logger.debug(`[Banana] Images API 请求 - 模型: ${model}`)
         logger.debug(`[Banana] Images API 请求 - response_format: ${responseFormat}`)
 
-        const maxAttempts = this.getRetryCount() + 1
+        const maxAttempts = this.getMaxRetryLoopAttempts()
         let lastError = null
         let attemptsUsed = 0
 
@@ -1198,8 +1224,11 @@ export class banana extends plugin {
             } catch (err) {
                 lastError = err
                 if (currentApiKey) BananaService.recordKeyUsage(currentApiKey, false, err?.message)
-                if (attempt < maxAttempts && this.shouldRetryError(err)) {
-                    logger?.debug?.(`[Banana] Images API 生成失败，准备重试 ${attempt}/${maxAttempts - 1}: ${err?.message || err}`)
+                const retryLimit = this.getRetryLimitForError(err)
+                if (attempt <= retryLimit && this.shouldRetryError(err)) {
+                    const delayMs = this.getRetryDelayForError(err)
+                    logger?.debug?.(`[Banana] Images API 生成失败，准备重试 ${attempt}/${retryLimit}: ${err?.message || err}`)
+                    if (delayMs > 0) await this.sleep(delayMs)
                     continue
                 }
                 break
@@ -1288,7 +1317,7 @@ export class banana extends plugin {
         logger.debug(`[Banana] 视频 API 请求 - 模型: ${model}`)
         logger.debug(`[Banana] 视频 API 请求 - 模式: ${useStream ? '流式' : '非流式'}`)
 
-        const maxAttempts = this.getRetryCount() + 1
+        const maxAttempts = this.getMaxRetryLoopAttempts()
         let lastError = null
         let attemptsUsed = 0
 
@@ -1340,8 +1369,11 @@ export class banana extends plugin {
             } catch (err) {
                 lastError = err
                 if (currentApiKey) BananaService.recordKeyUsage(currentApiKey, false, err?.message)
-                if (attempt < maxAttempts && this.shouldRetryError(err)) {
-                    logger?.debug?.(`[Banana] 视频生成失败，准备重试 ${attempt}/${maxAttempts - 1}: ${err?.message || err}`)
+                const retryLimit = this.getRetryLimitForError(err)
+                if (attempt <= retryLimit && this.shouldRetryError(err)) {
+                    const delayMs = this.getRetryDelayForError(err)
+                    logger?.debug?.(`[Banana] 视频生成失败，准备重试 ${attempt}/${retryLimit}: ${err?.message || err}`)
+                    if (delayMs > 0) await this.sleep(delayMs)
                     continue
                 }
                 break
