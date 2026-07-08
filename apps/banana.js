@@ -1,6 +1,7 @@
 import https from 'https'
 import http from 'http'
 import BananaService from '../model/BananaService.js'
+import MessageImageResolver from '../model/MessageImageResolver.js'
 import Render from '../components/Render.js'
 import Config from '../components/Cfg.js'
 
@@ -182,37 +183,6 @@ export class banana extends plugin {
         return 'return'
     }
 
-    async takeSourceMsg(e, { img, file } = {}) {
-        let source = ''
-        if (e.getReply) {
-            source = await e.getReply()
-        } else if (e.source) {
-            if (e.group?.getChatHistory) {
-                source = (await e.group.getChatHistory(e.source.seq, 1)).pop()
-            } else if (e.friend?.getChatHistory) {
-                source = (await e.friend.getChatHistory(e.source.time, 1)).pop()
-            }
-        }
-        if (!source) return false
-        if (img) {
-            let imgArr = []
-            for (let i of source.message) {
-                if (i.type == 'image') {
-                    imgArr.push(i.url)
-                }
-            }
-            return imgArr.length > 0 ? imgArr : false
-        }
-        if (file) {
-            if (source.message[0].type === 'file') {
-                let { fid } = source.message[0]
-                return fid && e.isGroup ? e?.group?.getFileUrl(fid) : e?.friend?.getFileUrl(fid)
-            }
-            return false
-        }
-        return source
-    }
-
     getAtUserId(e) {
         const atSeg = e.message?.find?.(m => m.type === 'at' && m.qq)
         if (/^all$/i.test(String(atSeg?.qq || ''))) return ''
@@ -224,38 +194,12 @@ export class banana extends plugin {
         return /^all$/i.test(userId) ? String(e.user_id || '') : userId
     }
 
-    async resolveImageUrls(e, { avatarFallback = false, targetUserId = '', maxImages = 3 } = {}) {
-        const imageUrls = []
-
-        const addImages = urls => {
-            if (!Array.isArray(urls)) return
-            for (const url of urls) {
-                if (url && !imageUrls.includes(url)) imageUrls.push(url)
-            }
-        }
-
-        // 优先级 1：当前消息里的图片
-        const currentMsgImgs = (e.message || [])
-            .filter(m => m.type === 'image' && m.url)
-            .map(m => m.url)
-        addImages(currentMsgImgs)
-
-        // 优先级 2：回复消息中的图片
-        const replyImgs = await this.takeSourceMsg(e, { img: true })
-        addImages(replyImgs)
-
-        // 优先级 3：预设作图无图时，使用目标用户头像兜底
-        if (avatarFallback && imageUrls.length === 0) {
-            const fallbackUserId = this.getTargetUserId(e, targetUserId)
-            if (fallbackUserId) addImages([await this.getAvatarUrl(fallbackUserId)])
-            if (imageUrls.length === 0 && e.user_id) addImages([await this.getAvatarUrl(e.user_id)])
-        }
-
-        if (imageUrls.length > maxImages) {
-            logger?.debug?.(`[Banana] 输入图片超出${maxImages}张，已截取前${maxImages}张`)
-        }
-
-        return imageUrls.slice(0, maxImages)
+    async resolveImageUrls(e, { maxImages = 3 } = {}) {
+        return MessageImageResolver.resolve(e, {
+            current: true,
+            quoted: true,
+            maxImages
+        })
     }
 
     async getDisplayName(e, userId = e.user_id, manualNickname = '') {
@@ -958,8 +902,6 @@ export class banana extends plugin {
         const quoteReply = true
         prompt = await this.renderPromptVariables(e, prompt, targetUserId, manualNickname)
         const imageUrls = await this.resolveImageUrls(e, {
-            avatarFallback: !isDirectCommand,
-            targetUserId,
             maxImages: 3
         })
 
@@ -1240,32 +1182,11 @@ export class banana extends plugin {
         await e.reply(`❌ 生成失败（${elapsed}s）\n错误: ${err.message}${this.formatRetrySuffix(attemptsUsed)}`, quoteReply)
     }
 
-	    async performVideoGeneration(e, model, prompt, startTime) {
-        let imageUrls = []
+    async performVideoGeneration(e, model, prompt, startTime) {
         const quoteReply = true
-
-        const replyImgs = await this.takeSourceMsg(e, { img: true })
-        if (Array.isArray(replyImgs) && replyImgs.length > 0) {
-            imageUrls.push(...replyImgs)
-        }
-
-        const currentMsgImgs = e.message
-            .filter(m => m.type === 'image' && m.url)
-            .map(m => m.url)
-        if (currentMsgImgs.length > 0) imageUrls.push(...currentMsgImgs)
-
-        // 若无图片：优先取 @ 的头像，否则取发送者头像
-        if (imageUrls.length === 0) {
-            const atSeg = e.message.find(m => m.type === 'at')
-            if (atSeg?.qq) {
-                const avatar = await this.getAvatarUrl(atSeg.qq)
-                if (avatar) imageUrls.push(avatar)
-            }
-            if (imageUrls.length === 0) {
-                const senderAvatar = await this.getAvatarUrl(e.user_id)
-                if (senderAvatar) imageUrls.push(senderAvatar)
-            }
-        }
+        let imageUrls = await this.resolveImageUrls(e, {
+            maxImages: 1
+        })
 
         // 视频生成必须有参考图（至少 1 张）
         if (imageUrls.length === 0) {
