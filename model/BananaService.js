@@ -132,7 +132,19 @@ class BananaService {
      * 获取预设列表
      */
     getPresets() {
-        return this.config.presets || []
+        return Array.isArray(this.config.presets) ? this.config.presets : []
+    }
+
+    /**
+     * 从当前配置中随机选择一个有效预设。
+     * 只有同时配置了命令和提示词的预设才参与抽选。
+     */
+    getRandomPreset() {
+        const presets = this.getPresets().filter(preset =>
+            preset && String(preset.cmd || '').trim() && String(preset.prompt || '').trim()
+        )
+        if (presets.length === 0) return null
+        return presets[Math.floor(Math.random() * presets.length)]
     }
 
     /**
@@ -140,7 +152,8 @@ class BananaService {
      */
     getPresetByCmd(cmd) {
         const presets = this.getPresets()
-        return presets.find(p => p.cmd === cmd)
+        const targetCmd = String(cmd || '').trim()
+        return presets.find(preset => String(preset?.cmd || '').trim() === targetCmd)
     }
 
     /**
@@ -237,23 +250,82 @@ class BananaService {
             buffer[2] === 0x46 && buffer[3] === 0x38
     }
 
+    normalizeImageUrl(imageUrl) {
+        return String(imageUrl || '')
+            .trim()
+            .replace(/&amp;/g, '&')
+    }
+
+    inferImageMime(buffer, fallback = 'image/jpeg') {
+        if (!Buffer.isBuffer(buffer) || buffer.length < 4) return fallback
+        if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
+        if (
+            buffer[0] === 0x89 && buffer[1] === 0x50 &&
+            buffer[2] === 0x4e && buffer[3] === 0x47
+        ) return 'image/png'
+        if (buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+        if (this.isGifBuffer(buffer)) return 'image/gif'
+        return fallback
+    }
+
+    async fetchImageBuffer(imageUrl) {
+        const url = this.normalizeImageUrl(imageUrl)
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        }
+
+        if (typeof fetch === 'function') {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 30000)
+            try {
+                const response = await fetch(url, {
+                    headers,
+                    signal: controller.signal
+                })
+                if (response.ok) {
+                    return {
+                        buffer: Buffer.from(await response.arrayBuffer()),
+                        headers: Object.fromEntries(response.headers.entries()),
+                        url
+                    }
+                }
+                logger?.debug?.(`[Banana] fetch 下载图片失败，回退 HTTP: HTTP ${response.status}`)
+            } catch (err) {
+                logger?.debug?.(`[Banana] fetch 下载图片失败，回退 HTTP: ${err?.message || err}`)
+            } finally {
+                clearTimeout(timer)
+            }
+        }
+
+        const response = await this.httpRequest(url, {
+            method: 'GET',
+            timeout: 30000,
+            headers
+        })
+
+        if (!response.ok) {
+            logger?.error?.(`[Banana] 图片下载失败: HTTP ${response.status} - ${url}`)
+            return null
+        }
+
+        return {
+            buffer: Buffer.from(await response.arrayBuffer()),
+            headers: response.headers || {},
+            url
+        }
+    }
+
     /**
      * 下载图片并转换为 base64
      * 如果是 GIF 且系统有 ffmpeg，则提取首帧
      */
     async downloadImageToBase64(imageUrl) {
-        const response = await this.httpRequest(imageUrl, {
-            method: 'GET',
-            timeout: 30000
-        })
+        const image = await this.fetchImageBuffer(imageUrl)
+        if (!image) return null
 
-        if (!response.ok) {
-            logger?.error?.(`[Banana] 图片下载失败: HTTP ${response.status} - ${imageUrl}`)
-            return null
-        }
-
-        let buffer = Buffer.from(await response.arrayBuffer())
-        let mimeType = 'image/jpeg'
+        let buffer = image.buffer
+        let mimeType = this.inferImageMime(buffer)
 
         // 检测是否为 GIF
         if (this.isGifBuffer(buffer)) {
@@ -272,15 +344,15 @@ class BananaService {
             }
         } else {
             // 非 GIF: 检测 MIME 类型
-            const contentType = response.headers['content-type']
+            const contentType = image.headers['content-type']
             if (contentType && contentType.startsWith('image/')) {
                 mimeType = contentType.split(';')[0]
             } else {
-                const ext = imageUrl.split('.').pop()?.toLowerCase()
+                const ext = image.url.split('.').pop()?.toLowerCase()
                 switch (ext) {
                     case 'png': mimeType = 'image/png'; break
                     case 'webp': mimeType = 'image/webp'; break
-                    default: mimeType = 'image/jpeg'; break
+                    default: mimeType = this.inferImageMime(buffer); break
                 }
             }
         }

@@ -394,7 +394,7 @@ export function supportGuoba() {
                     field: 'Banana.presets',
                     label: '预设列表',
                     helpMessage: '配置预设关键字和提示词',
-                    bottomHelpMessage: '每个预设包含: cmd(关键字), name(名称), desc(描述), prompt(提示词)。可用 {{nickname}}/{{qq}}/{{group_name}}/{{sender_nickname}} 等变量；命令后可跟手动昵称覆盖，如 #预设 昵称 或 #预设 name=昵称；可用 -p 追加要求',
+                    bottomHelpMessage: '每个预设包含: cmd(关键字), name(名称), desc(描述), prompt(提示词)。可用 {{nickname}}/{{qq}}/{{group_name}}/{{sender_nickname}} 等变量；命令后可跟手动昵称覆盖，如 #预设 昵称 或 #预设 name=昵称；可用 -p 追加要求；#随机化 会从有效预设中随机抽取',
                     component: 'GSubForm',
                     componentProps: {
                         multiple: true,

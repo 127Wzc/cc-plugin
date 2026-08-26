@@ -177,10 +177,16 @@ export class banana extends plugin {
 
     async accept(e) {
         const parsed = this.parsePresetCommand(e?.msg)
-        if (!parsed) return false
+        if (parsed) {
+            await this.generateImageByPreset(e, parsed)
+            return 'return'
+        }
 
-        await this.generateImageByPreset(e, parsed)
-        return 'return'
+        const randomPreset = this.parseRandomPresetCommand(e?.msg)
+        if (!randomPreset) return false
+
+        const handled = await this.generateRandomImageByPreset(e, randomPreset)
+        return handled ? 'return' : false
     }
 
     getAtUserId(e) {
@@ -194,12 +200,45 @@ export class banana extends plugin {
         return /^all$/i.test(userId) ? String(e.user_id || '') : userId
     }
 
-    async resolveImageUrls(e, { maxImages = 3 } = {}) {
-        return MessageImageResolver.resolve(e, {
+    async resolveImageUrls(e, {
+        maxImages = 3,
+        avatarFallback = false,
+        targetUserId = '',
+        fallbackReason = '预设'
+    } = {}) {
+        const imageUrls = await MessageImageResolver.resolve(e, {
             current: true,
             quoted: true,
             maxImages
         })
+
+        logger?.debug?.(`[Banana] 当前/引用图片解析完成：${imageUrls.length}张`)
+
+        if (avatarFallback && imageUrls.length === 0) {
+            const fallbackUserId = this.getTargetUserId(e, targetUserId)
+            const senderUserId = String(e.user_id || '').trim()
+            const avatarUserIds = Array.from(new Set([fallbackUserId, senderUserId].filter(Boolean)))
+
+            logger?.info?.(`[Banana] ${fallbackReason} 未找到当前/引用图片，触发头像填充：候选QQ=${avatarUserIds.join(',') || '无'}`)
+
+            for (const userId of avatarUserIds) {
+                try {
+                    const avatarUrl = await this.getAvatarUrl(userId)
+                    if (!avatarUrl) continue
+                    imageUrls.push(avatarUrl)
+                    logger?.info?.(`[Banana] 头像填充成功：QQ=${userId}`)
+                    break
+                } catch (err) {
+                    logger?.warn?.(`[Banana] 头像填充失败：QQ=${userId}，${err?.message || err}`)
+                }
+            }
+
+            if (imageUrls.length === 0) {
+                logger?.warn?.(`[Banana] 头像填充结束：没有可用头像`)
+            }
+        }
+
+        return imageUrls
     }
 
     async getDisplayName(e, userId = e.user_id, manualNickname = '') {
@@ -274,6 +313,12 @@ export class banana extends plugin {
         }
 
         return null
+    }
+
+    parseRandomPresetCommand(msg = '') {
+        const text = String(msg || '').trim()
+        const match = text.match(/^#随机化(?:\s+([\s\S]+))?$/)
+        return match ? { args: String(match[1] || '').trim() } : null
     }
 
     parsePresetArgs(e, rawArgs = '') {
@@ -406,7 +451,7 @@ export class banana extends plugin {
             return
         }
 
-        const presetCmd = preset.cmd  // 使用触发指令而不是名称
+        const presetCmd = String(preset.cmd || '').trim()  // 使用触发指令而不是名称
         const maxQueue = this.config.max_queue || 5
         const maxConcurrent = this.config.max_concurrent || 1
 
@@ -415,6 +460,36 @@ export class banana extends plugin {
             const prompt = this.buildPresetPrompt(preset.prompt, appendPrompt)
             await this.performGeneration(e, fullModel, prompt, startTime, false, `#${presetCmd}`, targetUserId, manualNickname)
         }, maxQueue, maxConcurrent)
+    }
+
+    async generateRandomImageByPreset(e, parsedCommand = null) {
+        const startTime = Date.now()
+        const parsed = parsedCommand || this.parseRandomPresetCommand(e?.msg)
+
+        if (!parsed) {
+            await e.reply('❌ 随机预设命令格式错误')
+            return false
+        }
+
+        const preset = BananaService.getRandomPreset()
+        if (!preset) {
+            logger?.debug?.('[Banana] 随机预设未命中有效配置，交回其他插件处理')
+            return false
+        }
+
+        const presetCmd = String(preset.cmd || '').trim()
+        const { targetUserId, manualNickname, appendPrompt } = this.parsePresetArgs(e, parsed.args)
+        const maxQueue = this.config.max_queue || 5
+        const maxConcurrent = this.config.max_concurrent || 1
+
+        logger?.info?.(`[Banana] 随机预设选中：#${presetCmd}${preset.name ? `（${preset.name}）` : ''}`)
+
+        enqueueJob(e, `#${presetCmd}（随机）`, async () => {
+            const fullModel = this.config.default_model || 'gemini-3-pro-image-preview'
+            const prompt = this.buildPresetPrompt(preset.prompt, appendPrompt)
+            await this.performGeneration(e, fullModel, prompt, startTime, false, `#${presetCmd}（随机）`, targetUserId, manualNickname)
+        }, maxQueue, maxConcurrent)
+        return true
     }
 
     async generateImage(e) {
@@ -901,8 +976,12 @@ export class banana extends plugin {
     async performGeneration(e, model, prompt, startTime, isDirectCommand = false, presetName = null, targetUserId = '', manualNickname = '') {
         const quoteReply = true
         prompt = await this.renderPromptVariables(e, prompt, targetUserId, manualNickname)
+        const avatarFallback = !isDirectCommand && Boolean(presetName)
         const imageUrls = await this.resolveImageUrls(e, {
-            maxImages: 3
+            maxImages: 3,
+            avatarFallback,
+            targetUserId,
+            fallbackReason: presetName || '预设'
         })
 
         const apiUrl = this.config.api_url
@@ -1730,6 +1809,7 @@ export class banana extends plugin {
                 list: [
                     { title: '#cc [提示词]', desc: '生成图片，可回复图片进行图生图' },
                     { title: '#cc帮助', desc: '查看本帮助页面' },
+                    { title: '#随机化', desc: '从当前有效预设中随机选择一个生成' },
                     { title: '#大香蕉模型列表', desc: '查看支持的模型' },
                     { title: '#大香蕉预设列表', desc: '查看所有预设关键字' }
                 ]
