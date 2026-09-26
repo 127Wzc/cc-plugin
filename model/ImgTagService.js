@@ -403,6 +403,13 @@ class ImgTagService {
 
     // ==================== API 方法 ====================
 
+    getApiHeaders(apiKey) {
+        return {
+            'X-API-Key': apiKey,
+            'Content-Type': 'application/json'
+        }
+    }
+
     /**
      * 通用 API 请求方法（全局 key）
      */
@@ -414,10 +421,7 @@ class ImgTagService {
         }
 
         const url = `${api_url}/api/v1/external${endpoint}`
-        const headers = {
-            'api_key': api_key,
-            'Content-Type': 'application/json'
-        }
+        const headers = this.getApiHeaders(api_key)
 
         const options = { method, headers }
         if (body) {
@@ -447,10 +451,7 @@ class ImgTagService {
         if (!api_key) throw new Error('未配置个人 api_key，请先设置后再使用')
 
         const url = `${api_url}/api/v1/external${endpoint}`
-        const headers = {
-            'api_key': api_key,
-            'Content-Type': 'application/json'
-        }
+        const headers = this.getApiHeaders(api_key)
         const options = { method, headers }
         if (body) options.body = JSON.stringify(body)
 
@@ -474,10 +475,7 @@ class ImgTagService {
         if (!key) throw new Error('未配置可用的 ImgTag api_key')
 
         const url = `${api_url}/api/v1/external${endpoint}`
-        const headers = {
-            'api_key': key,
-            'Content-Type': 'application/json'
-        }
+        const headers = this.getApiHeaders(key)
         const options = { method, headers }
         if (body) options.body = JSON.stringify(body)
 
