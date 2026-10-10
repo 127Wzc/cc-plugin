@@ -138,12 +138,12 @@ export class banana extends plugin {
             priority: 200,
             rule: [
                 {
-                    reg: '^#cc切换图片模型\\s*.+$',
+                    reg: '^#cc切换图片模型[\\s\\S]*$',
                     fnc: 'switchImageModel',
                     permission: 'master'
                 },
                 {
-                    reg: '^#cc切换视频模型\\s*.+$',
+                    reg: '^#cc切换视频模型[\\s\\S]*$',
                     fnc: 'switchVideoModel',
                     permission: 'master'
                 },

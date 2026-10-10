@@ -252,6 +252,12 @@ class ImgTagService {
             last_sync_error: metadata.error || '',
             sync_user_id: metadata.userId ? String(metadata.userId) : '',
             source_url: metadata.sourceUrl || '',
+            source_message_id: metadata.sourceMessageId ? String(metadata.sourceMessageId) : '',
+            source_bot_id: metadata.sourceBotId ? String(metadata.sourceBotId) : '',
+            source_chat_type: metadata.sourceChatType || '',
+            source_group_id: metadata.sourceGroupId ? String(metadata.sourceGroupId) : '',
+            source_user_id: metadata.sourceUserId ? String(metadata.sourceUserId) : '',
+            source_image_index: metadata.sourceImageIndex ?? null,
             tags: Array.isArray(metadata.tags) ? metadata.tags : [],
             mface_name: metadata.mfaceName || ''
         })
@@ -278,6 +284,38 @@ class ImgTagService {
             .sort((a, b) => Number(a[1]?.sync_failed_at || 0) - Number(b[1]?.sync_failed_at || 0))
             .slice(0, max)
             .map(([md5, item]) => ({ md5, ...item }))
+    }
+
+    clearPendingSyncImages(userId) {
+        this.loadIndex()
+        const uid = String(userId || '')
+        if (!uid) return 0
+
+        let cleared = 0
+        const fields = [
+            'sync_failed_at',
+            'last_sync_error',
+            'sync_user_id',
+            'source_url',
+            'source_message_id',
+            'source_bot_id',
+            'source_chat_type',
+            'source_group_id',
+            'source_user_id',
+            'source_image_index'
+        ]
+
+        for (const item of Object.values(this.index || {})) {
+            if (!item?.sync_failed || item.synced || String(item.sync_user_id || '') !== uid) continue
+
+            item.sync_failed = false
+            item.updated_at = Date.now()
+            for (const field of fields) delete item[field]
+            cleared++
+        }
+
+        if (cleared) this.saveIndex()
+        return cleared
     }
 
     /**

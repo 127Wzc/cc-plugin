@@ -163,6 +163,24 @@ function extractImagesFromMessages(messages, disabledSummary = []) {
     return imgData
 }
 
+async function refreshOneBotImageUrl(item) {
+    if (!item.source_message_id || item.source_image_index == null) return null
+    const imageIndex = Number(item.source_image_index)
+    if (!Number.isInteger(imageIndex) || imageIndex < 0) return null
+
+    const bot = Bot?.[String(item.source_bot_id || '')]
+    if (!bot) return null
+
+    const target = item.source_chat_type === 'group'
+        ? bot.pickGroup?.(item.source_group_id)
+        : bot.pickFriend?.(item.source_user_id)
+    if (typeof target?.getMsg !== 'function') return null
+
+    const sourceMsg = await target.getMsg(item.source_message_id)
+    const images = extractImagesFromMessages(sourceMsg?.message, ImgTagService.config.disabled_summary || [])
+    return images[imageIndex]?.url || null
+}
+
 /**
  * ImgTag 智能图床插件
  * 支持偷图、搜图、随机发图等功能
@@ -173,23 +191,27 @@ export class ImgTag extends plugin {
             name: '[cc-plugin] ImgTag 智能图床',
             dsc: '对接 ImgTag API 的图片收藏与发送插件',
             event: 'message',
-            priority: 100,
+            priority: 100, // 高于 Banana 通用绘图入口（200）
             rule: [
                 {
-                    reg: '^#?cc图库设置key\\s+(.+)$',
+                    reg: '^#?cc图库设置key(?:\\s+(.+))?\\s*$',
                     fnc: 'setUserKey'
                 },
                 {
-                    reg: '^#?cc图库删除key$',
+                    reg: '^#?cc图库删除key\\s*$',
                     fnc: 'deleteUserKey'
                 },
                 {
-                    reg: '^#?cc图库我的状态$',
+                    reg: '^#?cc图库我的状态\\s*$',
                     fnc: 'myStatus'
                 },
                 {
-                    reg: '^#?cc图库重试同步(?:\\s+\\d+)?$',
+                    reg: '^#?cc图库重试同步(?:\\s+\\d+)?\\s*$',
                     fnc: 'retryCloudSync'
+                },
+                {
+                    reg: '^#?cc图库清空失败(?:记录)?\\s*$',
+                    fnc: 'clearFailedSync'
                 },
                 {
                     reg: '^#?(cc)?(偷图|存图)(.*)$',
@@ -204,7 +226,7 @@ export class ImgTag extends plugin {
                     fnc: 'randomImage'
                 },
                 {
-                    reg: '^#?cc图库状态$',
+                    reg: '^#?cc图库状态\\s*$',
                     fnc: 'showStats'
                 }
             ]
@@ -291,9 +313,22 @@ export class ImgTag extends plugin {
         const errors = []
 
         for (const item of pending) {
+            let sourceUrl = item.source_url
             try {
+                try {
+                    const refreshedUrl = await refreshOneBotImageUrl(item)
+                    if (refreshedUrl) {
+                        sourceUrl = refreshedUrl
+                        logger.info(`[ImgTag] 已重新获取 OneBot 图片链接: ${item.md5}`)
+                    } else if (!item.source_message_id) {
+                        logger.debug(`[ImgTag] 记录缺少 OneBot 原消息 ID，使用已保存链接: ${item.md5}`)
+                    }
+                } catch (refreshErr) {
+                    logger.warn(`[ImgTag] 刷新 OneBot 图片链接失败: ${item.md5} ${refreshErr?.message || refreshErr}`)
+                }
+
                 const tags = Array.isArray(item.tags) ? item.tags : []
-                const cloudResult = await ImgTagService.addImageForUser(e.user_id, item.source_url, tags, '', callbackUrl)
+                const cloudResult = await ImgTagService.addImageForUser(e.user_id, sourceUrl, tags, '', callbackUrl)
                 ImgTagService.markSyncSuccess(item.md5, cloudResult)
                 ok++
 
@@ -312,7 +347,13 @@ export class ImgTag extends plugin {
                 errors.push(`${item.md5.slice(0, 8)}: ${message}`)
                 ImgTagService.markSyncFailed(item.md5, {
                     userId: e.user_id,
-                    sourceUrl: item.source_url,
+                    sourceUrl,
+                    sourceMessageId: item.source_message_id,
+                    sourceBotId: item.source_bot_id,
+                    sourceChatType: item.source_chat_type,
+                    sourceGroupId: item.source_group_id,
+                    sourceUserId: item.source_user_id,
+                    sourceImageIndex: item.source_image_index,
                     tags: item.tags,
                     error: message,
                     mfaceName: item.mface_name || ''
@@ -326,6 +367,17 @@ export class ImgTag extends plugin {
             msg += `\n失败: ${fail} 个`
             msg += `\n${errors.slice(0, 3).join('\n')}`
         }
+        await e.reply(msg, true)
+        return true
+    }
+
+    async clearFailedSync(e) {
+        if (!ImgTagService.isAllowedUser(e.user_id)) return true
+
+        const count = ImgTagService.clearPendingSyncImages(e.user_id)
+        const msg = count
+            ? `🧹 已清空 ${count} 条云端同步失败记录，本地图片保留。`
+            : '✅ 没有可清空的云端同步失败记录。'
         await e.reply(msg, true)
         return true
     }
@@ -346,8 +398,10 @@ export class ImgTag extends plugin {
         const disabledSummary = config.disabled_summary || []
 
         // 从当前消息获取图片（直接发送的图片没有 summary）
+        let sourceMessageId = null
         if (e.img && e.img.length > 0) {
             imgData = e.img.map(url => ({ url, mfaceSummary: '' }))
+            sourceMessageId = e.message_id
         }
         // 从引用消息获取图片
         else if (e.source) {
@@ -359,6 +413,7 @@ export class ImgTag extends plugin {
                 } else {
                     sourceMsg = (await e.friend.getChatHistory(e.source.time, 1)).pop()
                 }
+                sourceMessageId = sourceMsg?.message_id || e.reply_id || e.source?.seq || null
                 logger.debug(`[ImgTag] e.source 获取结果: ${JSON.stringify(sourceMsg?.message?.map(m => ({ type: m.type, summary: m.summary })))}`)
                 imgData = extractImagesFromMessages(sourceMsg?.message, disabledSummary)
             } catch (err) {
@@ -369,6 +424,7 @@ export class ImgTag extends plugin {
         if (imgData.length === 0 && e.getReply) {
             try {
                 const replyData = await e.getReply()
+                sourceMessageId = replyData?.message_id || e.reply_id || null
                 logger.debug(`[ImgTag] e.getReply 获取结果: ${JSON.stringify(replyData?.message?.map(m => ({ type: m.type, summary: m.summary })))}`)
                 imgData = extractImagesFromMessages(replyData?.message, disabledSummary)
             } catch (err) {
@@ -380,6 +436,19 @@ export class ImgTag extends plugin {
             e.reply('❌ 请回复一张图片或直接发送图片', true)
             return true
         }
+
+        const sourceInfo = sourceMessageId ? {
+            sourceMessageId,
+            sourceBotId: e.self_id,
+            sourceChatType: e.isGroup ? 'group' : 'private',
+            sourceGroupId: e.isGroup ? e.group_id : '',
+            sourceUserId: e.isGroup ? '' : e.user_id
+        } : {}
+        imgData = imgData.map((image, index) => ({
+            ...image,
+            ...sourceInfo,
+            sourceImageIndex: index
+        }))
 
         // 解析标签 - 支持 #偷图#tag1,tag2,tag3 或 #偷图 tag1 tag2 格式
         // 先提取 # 后面的标签部分
@@ -443,6 +512,12 @@ export class ImgTag extends plugin {
                         ImgTagService.markSyncFailed(localResult.md5, {
                             userId: e.user_id,
                             sourceUrl: imgInfo.url,
+                            sourceMessageId: imgInfo.sourceMessageId,
+                            sourceBotId: imgInfo.sourceBotId,
+                            sourceChatType: imgInfo.sourceChatType,
+                            sourceGroupId: imgInfo.sourceGroupId,
+                            sourceUserId: imgInfo.sourceUserId,
+                            sourceImageIndex: imgInfo.sourceImageIndex,
                             tags: imageTags,
                             error: apiErr?.message || String(apiErr),
                             mfaceName: imgInfo.mfaceSummary ? imgInfo.mfaceSummary.replace(/[\[\]【】]/g, '').trim() : ''
