@@ -259,11 +259,14 @@ class ImgTagService {
             source_user_id: metadata.sourceUserId ? String(metadata.sourceUserId) : '',
             source_image_index: metadata.sourceImageIndex ?? null,
             tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+            analysis_instructions: this.normalizeAnalysisInstructions(metadata.analysisInstructions),
             mface_name: metadata.mfaceName || ''
         })
     }
 
     markSyncSuccess(md5, cloudResult = {}) {
+        this.loadIndex()
+        delete this.index[md5]?.analysis_instructions
         this.updateIndex(md5, {
             synced: true,
             sync_failed: false,
@@ -302,7 +305,8 @@ class ImgTagService {
             'source_chat_type',
             'source_group_id',
             'source_user_id',
-            'source_image_index'
+            'source_image_index',
+            'analysis_instructions'
         ]
 
         for (const item of Object.values(this.index || {})) {
@@ -543,14 +547,27 @@ class ImgTagService {
     }
 
     /**
+     * 规范化仅本次分析使用的补充要求，按 Unicode 字符数校验长度。
+     */
+    normalizeAnalysisInstructions(value) {
+        const instructions = typeof value === 'string' ? value.trim() : ''
+        if (Array.from(instructions).length > 6000) {
+            throw new Error('本次分析补充要求不能超过 6000 字符')
+        }
+        return instructions
+    }
+
+    /**
      * 上传图片到云端
      * @param {string} imageUrl - 原始图片 URL
      * @param {string[]} tags - 标签列表
      * @param {string} description - 描述
      * @param {string} callbackUrl - 分析完成后的回调 URL
+     * @param {string|null} analysisInstructions - 仅本次分析的补充要求
      * @returns {Promise<object>} API 响应
      */
-    async addImage(imageUrl, tags = [], description = '', callbackUrl = null) {
+    async addImage(imageUrl, tags = [], description = '', callbackUrl = null, analysisInstructions = '') {
+        const instructions = this.normalizeAnalysisInstructions(analysisInstructions)
         const body = {
             image_url: imageUrl,
             auto_analyze: this.config.auto_analyze !== false
@@ -568,11 +585,13 @@ class ImgTagService {
         if (callbackUrl) {
             body.callback_url = callbackUrl
         }
+        if (instructions) body.analysis_instructions = instructions
 
         return this.apiRequest('/images', 'POST', body)
     }
 
-    async addImageForUser(userId, imageUrl, tags = [], description = '', callbackUrl = null) {
+    async addImageForUser(userId, imageUrl, tags = [], description = '', callbackUrl = null, analysisInstructions = '') {
+        const instructions = this.normalizeAnalysisInstructions(analysisInstructions)
         const body = {
             image_url: imageUrl,
             auto_analyze: this.config.auto_analyze !== false
@@ -581,6 +600,7 @@ class ImgTagService {
         if (description) body.description = description
         if (this.config.default_category_id) body.category_id = this.config.default_category_id
         if (callbackUrl) body.callback_url = callbackUrl
+        if (instructions) body.analysis_instructions = instructions
         return this.apiRequestForUser(userId, '/images', 'POST', body)
     }
 
@@ -669,6 +689,35 @@ class ImgTagService {
 
     async getImageDetailForUser(userId, imageId) {
         return this.apiRequestForUser(userId, `/images/${imageId}`)
+    }
+
+    /**
+     * 以独立的 meme 目录定位图片路径，将它之前的存储前缀替换为 CDN 前缀。
+     * 未匹配 meme 目录时，将原路径接到 CDN 前缀后；保留查询参数和片段。
+     * CDN 未配置或地址无效时使用原链接。
+     */
+    getImageCdnUrl(imageUrl) {
+        const cdnUrl = typeof this.config.cdn_url === 'string' ? this.config.cdn_url.trim() : ''
+        if (!cdnUrl || !imageUrl) return imageUrl
+
+        try {
+            const cdn = new URL(cdnUrl)
+            if (!['http:', 'https:'].includes(cdn.protocol) ||
+                cdn.search || cdn.hash || cdn.username || cdn.password) {
+                throw new Error('CDN 前缀应为 http(s) 地址，可包含端口和路径，不包含查询参数或片段')
+            }
+            const original = new URL(imageUrl)
+            if (!['http:', 'https:'].includes(original.protocol)) return imageUrl
+            const memeIndex = original.pathname.indexOf('/meme/')
+            const relativePath = memeIndex < 0
+                ? original.pathname.replace(/^\/+/, '')
+                : original.pathname.slice(memeIndex + 1)
+            const cdnPrefix = `${cdn.origin}${cdn.pathname.replace(/\/+$/, '')}`
+            return `${cdnPrefix}/${relativePath}${original.search}${original.hash}`
+        } catch {
+            logger.warn('[ImgTag] CDN 地址或图片链接无效，使用原图片链接')
+            return imageUrl
+        }
     }
 
     /**

@@ -1,7 +1,7 @@
 import ImgTagService from '../model/ImgTagService.js'
 import common from '../../../lib/common/common.js'
 
-// 存储待回调的任务 {taskId: {md5, resolve, userId, groupId, botId, sourceMessageId}}
+// 存储待回调的任务 {taskId: {md5, resolve, userId, groupId, botId, sourceMessageId, analysisInstructions}}
 const pendingCallbacks = new Map()
 
 function needKeyTip() {
@@ -51,6 +51,7 @@ function registerCallbackRoute() {
             logger.info(`[ImgTag] 查找任务: image_id=${data.image_id}, 找到=${!!taskInfo}, 队列大小=${pendingCallbacks.size}`)
 
             if (data.success) {
+                const imageUrl = ImgTagService.getImageCdnUrl(data.image_url)
                 // 更新本地索引
                 if (taskInfo?.md5) {
                     ImgTagService.updateIndex(taskInfo.md5, {
@@ -68,10 +69,12 @@ function registerCallbackRoute() {
                     const tagStr = data.tags?.slice(0, 8).join(' · ') || '无'
 
                     // 分析结果文字
-                    const resultText = `🤖 AI 分析完成\n` +
+                    let resultText = `🤖 AI 分析完成\n` +
                         `🏷️ ${tagStr}\n` +
                         `📝 ${data.description || ''}`
-
+                    if (taskInfo.analysisInstructions) {
+                        resultText += `\n📝 本次扩展提示词注入：${taskInfo.analysisInstructions}`
+                    }
                     logger.info(`[ImgTag] 发送通知: userId=${taskInfo.userId}, groupId=${taskInfo.groupId}, botId=${taskInfo.botId}, sourceMessageId=${taskInfo.sourceMessageId}`)
 
                     try {
@@ -89,8 +92,8 @@ function registerCallbackRoute() {
                             }
                             if (imagePath) {
                                 msgParts.push(segment.image(`file://${imagePath}`))
-                            } else if (data.image_url) {
-                                msgParts.push(segment.image(data.image_url))
+                            } else if (imageUrl) {
+                                msgParts.push(segment.image(imageUrl))
                             }
                             msgParts.push(`\n${resultText}`)
                         }
@@ -214,7 +217,7 @@ export class ImgTag extends plugin {
                     fnc: 'clearFailedSync'
                 },
                 {
-                    reg: '^#?(cc)?(偷图|存图)(.*)$',
+                    reg: '^#?(cc)?(偷图|存图)([\\s\\S]*)$',
                     fnc: 'stealImage'
                 },
                 {
@@ -311,6 +314,7 @@ export class ImgTag extends plugin {
         let ok = 0
         let fail = 0
         const errors = []
+        const injectedInstructions = []
 
         for (const item of pending) {
             let sourceUrl = item.source_url
@@ -328,9 +332,13 @@ export class ImgTag extends plugin {
                 }
 
                 const tags = Array.isArray(item.tags) ? item.tags : []
-                const cloudResult = await ImgTagService.addImageForUser(e.user_id, sourceUrl, tags, '', callbackUrl)
+                const analysisInstructions = ImgTagService.normalizeAnalysisInstructions(item.analysis_instructions)
+                const cloudResult = await ImgTagService.addImageForUser(e.user_id, sourceUrl, tags, '', callbackUrl, analysisInstructions)
                 ImgTagService.markSyncSuccess(item.md5, cloudResult)
                 ok++
+                if (analysisInstructions) {
+                    injectedInstructions.push(`${item.md5.slice(0, 8)}：${analysisInstructions}`)
+                }
 
                 if (callbackUrl && config.auto_analyze && cloudResult.id) {
                     pendingCallbacks.set(String(cloudResult.id), {
@@ -338,6 +346,7 @@ export class ImgTag extends plugin {
                         userId: e.user_id,
                         groupId: e.group_id,
                         botId: e.self_id,
+                        analysisInstructions,
                         sourceMessageId: null
                     })
                 }
@@ -355,6 +364,7 @@ export class ImgTag extends plugin {
                     sourceUserId: item.source_user_id,
                     sourceImageIndex: item.source_image_index,
                     tags: item.tags,
+                    analysisInstructions: item.analysis_instructions,
                     error: message,
                     mfaceName: item.mface_name || ''
                 })
@@ -363,6 +373,10 @@ export class ImgTag extends plugin {
         }
 
         let msg = `🔁 云端同步重试完成: ${ok}/${pending.length} 成功`
+        if (injectedInstructions.length > 0) {
+            msg += `\n📝 本次扩展提示词注入：\n${injectedInstructions.join('\n')}`
+            if (config.auto_analyze === false) msg += '\n⚠️ AI 分析已关闭，本次不会调用模型'
+        }
         if (fail > 0) {
             msg += `\n失败: ${fail} 个`
             msg += `\n${errors.slice(0, 3).join('\n')}`
@@ -384,11 +398,25 @@ export class ImgTag extends plugin {
 
     /**
      * 偷图 - 保存引用消息中的图片
-     * 指令: #偷图 [标签1] [标签2] ...
+     * 指令: #偷图 [标签1] [标签2] ... [-- 本次分析补充要求]
      */
     async stealImage(e) {
         // 未授权：无感不响应（并吞掉指令，避免被其它插件误触发）
         if (!ImgTagService.isAllowedUser(e.user_id)) return true
+
+        // 第一个 -- 前为标签，后面整段为本次分析要求（保留换行和后续 --）。
+        const commandText = e.msg.replace(/^#?(cc)?(偷图|存图)/, '')
+        const separatorIndex = commandText.indexOf('--')
+        let tagPart = (separatorIndex < 0 ? commandText : commandText.slice(0, separatorIndex)).trim()
+        let analysisInstructions
+        try {
+            analysisInstructions = ImgTagService.normalizeAnalysisInstructions(
+                separatorIndex < 0 ? '' : commandText.slice(separatorIndex + 2)
+            )
+        } catch (err) {
+            await e.reply(`❌ ${err.message}`, true)
+            return true
+        }
 
         // 获取图片数据列表 [{url, mfaceSummary}]
         let imgData = []
@@ -451,9 +479,6 @@ export class ImgTag extends plugin {
         }))
 
         // 解析标签 - 支持 #偷图#tag1,tag2,tag3 或 #偷图 tag1 tag2 格式
-        // 先提取 # 后面的标签部分
-        let tagPart = e.msg.replace(/^#?(cc)?(偷图|存图)/, '').trim()
-
         // 如果以 # 开头，表示使用 #tag1,tag2 格式
         if (tagPart.startsWith('#')) {
             tagPart = tagPart.substring(1) // 移除开头的 #
@@ -491,7 +516,7 @@ export class ImgTag extends plugin {
                             throw new Error('未配置个人 api_key')
                         }
 
-                        cloudResult = await ImgTagService.addImageForUser(e.user_id, imgInfo.url, imageTags, '', callbackUrl)
+                        cloudResult = await ImgTagService.addImageForUser(e.user_id, imgInfo.url, imageTags, '', callbackUrl, analysisInstructions)
                         // 更新本地索引
                         ImgTagService.markSyncSuccess(localResult.md5, cloudResult)
 
@@ -502,6 +527,7 @@ export class ImgTag extends plugin {
                                 userId: e.user_id,
                                 groupId: e.group_id,
                                 botId: e.self_id,
+                                analysisInstructions,
                                 // 保存原图消息 ID，用于回调时引用回复
                                 sourceMessageId: e.reply_id || null
                             })
@@ -519,6 +545,7 @@ export class ImgTag extends plugin {
                             sourceUserId: imgInfo.sourceUserId,
                             sourceImageIndex: imgInfo.sourceImageIndex,
                             tags: imageTags,
+                            analysisInstructions,
                             error: apiErr?.message || String(apiErr),
                             mfaceName: imgInfo.mfaceSummary ? imgInfo.mfaceSummary.replace(/[\[\]【】]/g, '').trim() : ''
                         })
@@ -553,6 +580,10 @@ export class ImgTag extends plugin {
         }
         if (syncedCount > 0) {
             replyMsg += `\n☁️ 已同步云端: ${syncedCount} 张`
+            if (analysisInstructions) {
+                replyMsg += `\n📝 本次扩展提示词注入：${analysisInstructions}`
+                if (config.auto_analyze === false) replyMsg += '\n⚠️ AI 分析已关闭，本次不会调用模型'
+            }
         }
         if (baseTags.length > 0) {
             replyMsg += `\n🏷️ 标签: ${baseTags.join(', ')}`

@@ -32,6 +32,12 @@ random_count: 1
 # 如果不需要回调通知，留空即可
 callback_url: ""
 
+# 回调中的图片 CDN 前缀，支持端口和路径，留空使用原链接
+# 例如: https://cdn.example.com/imags/imgtag
+# 以路径中的独立 meme 目录定位，替换其前面的全部前缀，保留 meme/... 和查询参数
+# 原链接不含 meme 目录时，将其完整路径接到 CDN 前缀后
+cdn_url: ""
+
 # 禁用的图片外显关键词列表
 # 这些外显文字会被忽略，不作为标签上传
 disabled_summary:

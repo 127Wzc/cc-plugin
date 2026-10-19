@@ -52,7 +52,7 @@ export class help extends plugin {
             {
                 group: '🖼️ 图库功能',
                 list: [
-                    { title: '#偷图 [标签...]', desc: '保存引用的图片' },
+                    { title: '#偷图 [标签...] [-- 补充要求]', desc: '保存图片；-- 后为本次 AI 分析补充要求（最多6000字符），也支持 #存图' },
                     { title: '#cc图库重试同步 [数量]', desc: '重试上传本地已保存但云端失败的图片' },
                     { title: '#cc图库清空失败', desc: '清除自己的云端同步失败记录，保留本地图片' },
                     { title: '#cc图库设置key [key]', desc: '设置个人 ImgTag api_key' },

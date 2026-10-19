@@ -180,6 +180,16 @@ export function supportGuoba() {
                     }
                 },
                 {
+                    field: 'ImgTag.cdn_url',
+                    label: '图库 CDN 地址',
+                    helpMessage: '替换分析完成回调发图时使用的图片地址前缀，支持端口和路径',
+                    bottomHelpMessage: '例如: https://cdn.example.com/imags/imgtag，以路径中的独立 meme 目录定位，替换其前面的全部前缀，保留 meme/... 和查询参数；原链接不含 meme 目录时保留完整路径；留空使用原链接',
+                    component: 'Input',
+                    componentProps: {
+                        placeholder: 'https://cdn.example.com/imags/imgtag'
+                    }
+                },
+                {
                     field: 'ImgTag.disabled_summary',
                     label: '禁用外显关键词',
                     helpMessage: '这些图片外显文字会被忽略，不作为标签上传',
